@@ -741,10 +741,11 @@ export function ModalAbrirParada({
               {itemCatalogoEscolhido ? (
                 <div className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#e8f3ee] border border-[#b7dccb] text-[11px] text-[#004d2c] max-w-full">
                   <span className="font-mono font-bold bg-[#004d2c] text-white px-1.5 py-0.5 rounded text-[10px] shrink-0">
-                    {itemCatalogoEscolhido.badge}
+                    {itemCatalogoEscolhido.sintomaCodigo}
                   </span>
                   <span className="font-medium truncate">
-                    {itemCatalogoEscolhido.caminho}
+                    <strong className="font-bold">{itemCatalogoEscolhido.sintomaNome}</strong>
+                    {` · ${itemCatalogoEscolhido.sistemaCodigo} ${itemCatalogoEscolhido.sistemaNome} › ${itemCatalogoEscolhido.componenteCodigo} ${itemCatalogoEscolhido.componenteNome}`}
                   </span>
                   <button
                     type="button"
@@ -776,7 +777,7 @@ export function ModalAbrirParada({
                   ) : (
                     sistemasFiltradosAgrupados.map((grupo) => (
                       <div key={grupo.cabecalho}>
-                        <div className="sticky top-0 z-10 px-3 py-1.5 bg-[#f2f3f2] border-y border-[#e3e7e4] text-[10px] font-bold uppercase tracking-wider text-[#004d2c]">
+                        <div className="sticky top-0 z-10 px-3 py-1.5 bg-[#f2f3f2] border-y border-[#e3e7e4] text-[10px] font-bold uppercase tracking-wider text-[#5c666a]">
                           {grupo.cabecalho}
                         </div>
                         <div className="divide-y divide-[#f2f3f2]">
@@ -788,18 +789,18 @@ export function ModalAbrirParada({
                                 e.preventDefault();
                                 handleSelectItemCatalogo(item);
                               }}
-                              className="w-full px-3 py-2 flex items-center justify-between gap-2 text-left hover:bg-[#e8f3ee]/70 transition-colors cursor-pointer"
+                              className="w-full px-3 py-2.5 flex items-center justify-between gap-2 text-left hover:bg-[#e8f3ee]/70 transition-colors cursor-pointer"
                             >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className="px-1.5 py-0.5 rounded bg-[#004d2c] text-white font-mono font-bold text-[10px] shrink-0">
-                                  {item.badge}
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <span className="min-w-[38px] px-2 py-0.5 rounded-[5px] bg-[#e6f2ec] text-[#004d2c] font-mono font-bold text-[11px] text-right shrink-0">
+                                  {item.sintomaCodigo}
                                 </span>
-                                <span className="font-bold text-[12px] text-[#1f2426] truncate">
+                                <span className="font-bold text-[13px] text-[#1f2426] truncate">
                                   {item.sintomaNome}
                                 </span>
                               </div>
-                              <span className="text-[11px] text-[#6c7579] shrink-0 text-right">
-                                {item.componenteNome}
+                              <span className="text-[12px] text-[#6c7579] shrink-0 text-right">
+                                {item.componenteCodigo} – {item.componenteNome}
                               </span>
                             </button>
                           ))}

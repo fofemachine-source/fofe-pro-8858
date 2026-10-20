@@ -200,13 +200,11 @@ export const CATALOGO_FALHAS: Record<string, [string, string, [string, string, [
 };
 
 /**
- * Regra 2.4: Exibição do sintoma "NA": mostrar "NA – Não se aplica".
+ * Mantém o nome do sintoma exatamente como na planilha (ex.: "NA", "Obstrução", "Danificado(a)").
+ * Não acrescenta "– Não se aplica" ao "NA".
  */
 export function formatarNomeSintomaExibicao(nome: string): string {
   if (!nome) return '';
-  if (nome.trim().toUpperCase() === 'NA') {
-    return 'NA – Não se aplica';
-  }
   return nome;
 }
 

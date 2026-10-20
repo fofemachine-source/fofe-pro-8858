@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  Search, CheckCircle2, AlertTriangle, X, Layers, Cpu, Activity, RefreshCw, Sparkles, ChevronRight
+  ChevronDown, AlertTriangle, X, Layers, RefreshCw, Sparkles
 } from 'lucide-react';
 import {
   FalhaCatalogada,
   getCatalogo,
   listarPerfis,
-  buscarNoCatalogo,
   perfilDaTag,
   precisaEscolherPerfilCR,
   normalizarESepararTag,
@@ -14,6 +13,7 @@ import {
   construirFalhaCatalogada,
   formatarFalhaCard
 } from '../data/catalogoFalhas';
+import { removerAcentos } from '../lib/uEmDataUtils';
 
 export interface SeletorCatalogoProps {
   tag: string;
@@ -26,6 +26,18 @@ export interface SeletorCatalogoProps {
   placeholderComplemento?: string;
 }
 
+interface ItemCatalogoPlano {
+  perfil: string;
+  sistemaCodigo: string;
+  sistemaNome: string;
+  componenteCodigo: string;
+  componenteNome: string;
+  sintomaCodigo: string;
+  sintomaNome: string;
+  codigoCompleto: string;
+  buscaNorm: string;
+}
+
 export const SeletorCatalogo: React.FC<SeletorCatalogoProps> = ({
   tag,
   value,
@@ -33,8 +45,8 @@ export const SeletorCatalogo: React.FC<SeletorCatalogoProps> = ({
   onChange,
   obrigatorio = false,
   isAdmin = false,
-  labelTitulo = 'CATÁLOGO DE FALHAS (SISTEMA › COMPONENTE › SINTOMA)',
-  placeholderComplemento = 'Detalhe adicional / complemento em texto livre (ex.: mangueira do cilindro direito, código de erro no painel...)'
+  labelTitulo = 'SINTOMA (CATÁLOGO DE FALHAS)',
+  placeholderComplemento = 'Complemento (opcional)'
 }) => {
   const { tagNormalizada, prefixo } = useMemo(() => normalizarESepararTag(tag), [tag]);
   const perfilAuto = useMemo(() => perfilDaTag(tagNormalizada), [tagNormalizada]);
@@ -49,9 +61,12 @@ export const SeletorCatalogo: React.FC<SeletorCatalogoProps> = ({
   const [codSintoma, setCodSintoma] = useState<string>(value?.sintoma?.codigo || '');
   const [complemento, setComplemento] = useState<string>(value?.complemento ?? complementoProp ?? '');
 
-  const [buscaRapida, setBuscaRapida] = useState<string>('');
+  const [buscaInput, setBuscaInput] = useState<string>('');
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [avisoTrocaPerfil, setAvisoTrocaPerfil] = useState<string | null>(null);
 
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const prevPerfilRef = useRef<string | null>(null);
   const prevPrefixoRef = useRef<string>(prefixo);
 
@@ -75,6 +90,17 @@ export const SeletorCatalogo: React.FC<SeletorCatalogoProps> = ({
       setComplemento(complementoProp);
     }
   }, [complementoProp]);
+
+  // Fecha dropdown ao clicar fora
+  useEffect(() => {
+    const handleMouseDown = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleMouseDown);
+    return () => document.removeEventListener('mousedown', handleMouseDown);
+  }, []);
 
   // Se mudar o prefixo da TAG, reseta override manual de CR se não for mais CR
   useEffect(() => {
@@ -105,7 +131,7 @@ export const SeletorCatalogo: React.FC<SeletorCatalogoProps> = ({
         setCodSistema('');
         setCodComponente('');
         setCodSintoma('');
-        setBuscaRapida('');
+        setBuscaInput('');
         setAvisoTrocaPerfil(
           `Perfil da TAG alterado (${anterior} → ${perfilAtivo || 'Sem catálogo'}). A seleção anterior do catálogo foi limpa.`
         );
@@ -120,35 +146,74 @@ export const SeletorCatalogo: React.FC<SeletorCatalogoProps> = ({
     return getCatalogo(perfilAtivo);
   }, [perfilAtivo]);
 
-  const sistemaSelecionado = useMemo(
-    () => sistemasDisponiveis.find(s => s.codigo === codSistema) || null,
-    [sistemasDisponiveis, codSistema]
-  );
+  // Lista plana preservando exatamente a ordem da planilha
+  const todosItensCatalogo = useMemo<ItemCatalogoPlano[]>(() => {
+    if (!perfilAtivo || sistemasDisponiveis.length === 0) return [];
+    const itens: ItemCatalogoPlano[] = [];
+    for (const sis of sistemasDisponiveis) {
+      for (const comp of sis.componentes) {
+        for (const sin of comp.sintomas) {
+          const codigoCompleto = `${perfilAtivo}/${sis.codigo}/${comp.codigo}/${sin.codigo}`;
+          const buscaNorm = removerAcentos(
+            `${sis.codigo} ${sis.nome} ${comp.codigo} ${comp.nome} ${sin.codigo} ${sin.nome} ${codigoCompleto}`
+          );
+          itens.push({
+            perfil: perfilAtivo,
+            sistemaCodigo: sis.codigo,
+            sistemaNome: sis.nome,
+            componenteCodigo: comp.codigo,
+            componenteNome: comp.nome,
+            sintomaCodigo: sin.codigo,
+            sintomaNome: sin.nome,
+            codigoCompleto,
+            buscaNorm
+          });
+        }
+      }
+    }
+    return itens;
+  }, [perfilAtivo, sistemasDisponiveis]);
 
-  const componentesDisponiveis = useMemo(
-    () => sistemaSelecionado?.componentes || [],
-    [sistemaSelecionado]
-  );
+  const itemEscolhido = useMemo<ItemCatalogoPlano | null>(() => {
+    if (!codSistema || !codComponente || !codSintoma) return null;
+    return (
+      todosItensCatalogo.find(
+        item =>
+          item.sistemaCodigo === codSistema &&
+          item.componenteCodigo === codComponente &&
+          item.sintomaCodigo === codSintoma
+      ) || null
+    );
+  }, [todosItensCatalogo, codSistema, codComponente, codSintoma]);
 
-  const componenteSelecionado = useMemo(
-    () => componentesDisponiveis.find(c => c.codigo === codComponente) || null,
-    [componentesDisponiveis, codComponente]
-  );
+  // Filtro da busca aceitando código ou nome do sistema, componente ou sintoma
+  const termoFiltro = useMemo(() => {
+    if (itemEscolhido) return '';
+    return removerAcentos(buscaInput.trim());
+  }, [buscaInput, itemEscolhido]);
 
-  const sintomasDisponiveis = useMemo(
-    () => componenteSelecionado?.sintomas || [],
-    [componenteSelecionado]
-  );
+  const itensFiltrados = useMemo(() => {
+    if (!termoFiltro) return todosItensCatalogo;
+    const palavras = termoFiltro.split(/\s+/).filter(Boolean);
+    return todosItensCatalogo.filter(item =>
+      palavras.every(p => item.buscaNorm.includes(p))
+    );
+  }, [todosItensCatalogo, termoFiltro]);
 
-  const sintomaSelecionado = useMemo(
-    () => sintomasDisponiveis.find(s => s.codigo === codSintoma) || null,
-    [sintomasDisponiveis, codSintoma]
-  );
-
-  const resultadosBuscaRapida = useMemo(() => {
-    if (!perfilAtivo || !buscaRapida.trim()) return [];
-    return buscarNoCatalogo(perfilAtivo, buscaRapida).slice(0, 25);
-  }, [perfilAtivo, buscaRapida]);
+  const sistemasAgrupados = useMemo(() => {
+    const mapa = new Map<string, { cabecalho: string; itens: ItemCatalogoPlano[] }>();
+    itensFiltrados.forEach(item => {
+      const key = item.sistemaCodigo;
+      if (!mapa.has(key)) {
+        mapa.set(key, {
+          cabecalho: `${item.sistemaCodigo} – ${item.sistemaNome}`,
+          itens: []
+        });
+      }
+      mapa.get(key)!.itens.push(item);
+    });
+    return Array.from(mapa.values());
+  }, [itensFiltrados]);
 
   const emitirAlteracao = (
     novoSisCod: string,
@@ -180,114 +245,77 @@ export const SeletorCatalogo: React.FC<SeletorCatalogoProps> = ({
     }
   };
 
-  const handleSelecionarSistema = (novoCodSis: string) => {
+  const handleSelectItemCatalogo = (item: ItemCatalogoPlano) => {
     setAvisoTrocaPerfil(null);
-    setCodSistema(novoCodSis);
-    const sisObj = sistemasDisponiveis.find(s => s.codigo === novoCodSis);
-    if (sisObj && sisObj.componentes.length === 1) {
-      // Regra 3: Se o sistema tiver um único componente (ex.: SPI, MD), selecionar automaticamente
-      const compUnico = sisObj.componentes[0];
-      setCodComponente(compUnico.codigo);
-      if (compUnico.sintomas.length === 1) {
-        const sintUnico = compUnico.sintomas[0];
-        setCodSintoma(sintUnico.codigo);
-        emitirAlteracao(novoCodSis, compUnico.codigo, sintUnico.codigo, complemento);
-      } else {
-        setCodSintoma('');
-        emitirAlteracao(novoCodSis, compUnico.codigo, '', complemento);
-      }
-    } else {
-      setCodComponente('');
-      setCodSintoma('');
-      emitirAlteracao(novoCodSis, '', '', complemento);
-    }
-  };
-
-  const handleSelecionarComponente = (novoCodComp: string) => {
-    setAvisoTrocaPerfil(null);
-    setCodComponente(novoCodComp);
-    const compObj = componentesDisponiveis.find(c => c.codigo === novoCodComp);
-    if (compObj && compObj.sintomas.length === 1) {
-      const sintUnico = compObj.sintomas[0];
-      setCodSintoma(sintUnico.codigo);
-      emitirAlteracao(codSistema, novoCodComp, sintUnico.codigo, complemento);
-    } else {
-      setCodSintoma('');
-      emitirAlteracao(codSistema, novoCodComp, '', complemento);
-    }
-  };
-
-  const handleSelecionarSintoma = (novoCodSint: string) => {
-    setAvisoTrocaPerfil(null);
-    setCodSintoma(novoCodSint);
-    emitirAlteracao(codSistema, codComponente, novoCodSint, complemento);
-  };
-
-  const handleSelecionarResultadoBusca = (item: {
-    sistema: { codigo: string; nome: string };
-    componente: { codigo: string; nome: string };
-    sintoma: { codigo: string; nome: string };
-  }) => {
-    setAvisoTrocaPerfil(null);
-    setCodSistema(item.sistema.codigo);
-    setCodComponente(item.componente.codigo);
-    setCodSintoma(item.sintoma.codigo);
-    setBuscaRapida('');
-    emitirAlteracao(item.sistema.codigo, item.componente.codigo, item.sintoma.codigo, complemento);
-  };
-
-  const handleComplementoChange = (novoTexto: string) => {
-    setComplemento(novoTexto);
-    emitirAlteracao(codSistema, codComponente, codSintoma, novoTexto);
+    setCodSistema(item.sistemaCodigo);
+    setCodComponente(item.componenteCodigo);
+    setCodSintoma(item.sintomaCodigo);
+    setBuscaInput('');
+    setDropdownOpen(false);
+    emitirAlteracao(item.sistemaCodigo, item.componenteCodigo, item.sintomaCodigo, complemento);
+    setTimeout(() => inputRef.current?.focus(), 30);
   };
 
   const limparSelecaoCatalogo = () => {
     setCodSistema('');
     setCodComponente('');
     setCodSintoma('');
+    setBuscaInput('');
     emitirAlteracao('', '', '', complemento);
+    setTimeout(() => inputRef.current?.focus(), 30);
+  };
+
+  const handleInputChange = (val: string) => {
+    if (itemEscolhido) {
+      setComplemento(val);
+      emitirAlteracao(codSistema, codComponente, codSintoma, val);
+    } else if (perfilAtivo && todosItensCatalogo.length > 0) {
+      setBuscaInput(val);
+      setDropdownOpen(true);
+    } else {
+      setComplemento(val);
+      emitirAlteracao('', '', '', val);
+    }
   };
 
   const todosPerfis = useMemo(() => listarPerfis(), []);
+  const temCatalogoAtivo = Boolean(perfilAtivo && todosItensCatalogo.length > 0);
 
   return (
-    <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-3.5 sm:p-4 space-y-3.5">
+    <div ref={containerRef} className="relative space-y-2">
       {/* Cabeçalho + Selo do Perfil Identificado */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Layers className="h-4 w-4 text-amber-400 shrink-0" />
-          <span className="text-xs font-black text-slate-200 uppercase tracking-wider">
+        <label
+          className="block uppercase font-semibold tracking-wider flex items-center gap-1.5"
+          style={{ fontSize: '11px', color: '#3a4245' }}
+        >
+          <Layers className="h-3.5 w-3.5 text-[#004d2c] shrink-0" />
+          <span>
             {labelTitulo}
-            {obrigatorio && perfilAtivo ? <span className="text-red-400 ml-1">*</span> : null}
+            {obrigatorio && perfilAtivo ? <span className="text-red-600 ml-1">*</span> : null}
           </span>
-        </div>
+        </label>
 
-        {/* Selo do Perfil ao lado da TAG */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           {perfilAtivo ? (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-black">
-              <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#e8f3ee] border border-[#b7dccb] text-[#004d2c] text-[10px] font-bold">
+              <Sparkles className="h-3 w-3 text-[#004d2c]" />
               Catálogo: {perfilAtivo}
               {DESCRICAO_PERFIS[perfilAtivo] && DESCRICAO_PERFIS[perfilAtivo] !== perfilAtivo ? (
-                <span className="text-amber-200/80 font-bold">· {DESCRICAO_PERFIS[perfilAtivo]}</span>
+                <span className="font-normal">· {DESCRICAO_PERFIS[perfilAtivo]}</span>
               ) : null}
             </span>
           ) : tagNormalizada ? (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 text-xs font-bold">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 border border-gray-300 text-gray-700 text-[10px] font-semibold">
               {crPrecisaEscolha ? 'Caminhão CR: escolha Mecânico ou Elétrico' : 'Sem catálogo para este equipamento'}
             </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 text-xs font-bold">
-              Informe a TAG para filtrar o catálogo
-            </span>
-          )}
+          ) : null}
 
-          {/* Admin pode trocar o perfil manualmente se a regra errar */}
           {(isAdmin || perfilManualAdmin) && (
             <button
               type="button"
               onClick={() => setMostrarTrocaPerfilAdmin(prev => !prev)}
-              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[11px] font-bold text-slate-300 flex items-center gap-1 transition-all cursor-pointer"
+              className="px-2 py-0.5 rounded-md bg-gray-100 hover:bg-gray-200 border border-gray-300 text-[10px] font-semibold text-gray-700 flex items-center gap-1 transition-all cursor-pointer"
               title="Trocar perfil de catálogo manualmente"
             >
               <RefreshCw className="h-3 w-3" />
@@ -299,9 +327,9 @@ export const SeletorCatalogo: React.FC<SeletorCatalogoProps> = ({
 
       {/* Seletor manual de perfil pelo Admin */}
       {mostrarTrocaPerfilAdmin && (
-        <div className="bg-slate-900/90 border border-slate-700 rounded-xl p-3 space-y-2">
+        <div className="bg-[#f7f8f7] border border-[#d9dedb] rounded-xl p-3 space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-black text-amber-300 uppercase">
+            <span className="text-[11px] font-bold text-[#004d2c] uppercase">
               Selecionar Perfil de Catálogo Manualmente:
             </span>
             {perfilManualAdmin && (
@@ -311,7 +339,7 @@ export const SeletorCatalogo: React.FC<SeletorCatalogoProps> = ({
                   setPerfilManualAdmin(null);
                   setMostrarTrocaPerfilAdmin(false);
                 }}
-                className="text-[11px] font-bold text-slate-400 hover:text-white underline cursor-pointer"
+                className="text-[11px] font-semibold text-[#5c666a] hover:text-[#1f2426] underline cursor-pointer"
               >
                 Voltar ao automático ({perfilAuto || 'Auto'})
               </button>
@@ -326,10 +354,10 @@ export const SeletorCatalogo: React.FC<SeletorCatalogoProps> = ({
                   setPerfilManualAdmin(p);
                   setMostrarTrocaPerfilAdmin(false);
                 }}
-                className={`px-3 py-2 rounded-lg text-xs font-black border transition-all cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
                   perfilAtivo === p
-                    ? 'bg-amber-500 text-slate-950 border-amber-400'
-                    : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-600'
+                    ? 'bg-[#004d2c] text-white border-[#004d2c]'
+                    : 'bg-white text-[#1f2426] border-[#d9dedb] hover:border-[#004d2c]'
                 }`}
               >
                 {p}
@@ -341,238 +369,175 @@ export const SeletorCatalogo: React.FC<SeletorCatalogoProps> = ({
 
       {/* Aviso quando troca TAG e limpa seleção */}
       {avisoTrocaPerfil && (
-        <div className="bg-amber-950/50 border border-amber-500/40 rounded-xl p-3 flex items-center justify-between gap-2 text-xs text-amber-200 font-bold">
+        <div className="bg-amber-50 border border-amber-300 rounded-xl p-2.5 flex items-center justify-between gap-2 text-xs text-amber-900 font-semibold">
           <div className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+            <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
             <span>{avisoTrocaPerfil}</span>
           </div>
           <button
             type="button"
             onClick={() => setAvisoTrocaPerfil(null)}
-            className="text-amber-300 hover:text-white p-1"
+            className="text-amber-700 hover:text-amber-950 p-1 cursor-pointer"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
       )}
 
-      {/* Caso CR-9999 (não se encaixa em 25 nem 30/31/35): perguntar com dois botões grandes */}
+      {/* Caso CR fora do padrão automático */}
       {crPrecisaEscolha && !perfilManualAdmin && (
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3.5 space-y-2.5">
-          <div className="text-xs font-black text-amber-300 uppercase flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+        <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 space-y-2">
+          <div className="text-xs font-bold text-amber-900 uppercase flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
             Frota CR fora do padrão automático (25xx / 30xx / 31xx / 35xx). Qual é o tipo deste caminhão?
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2.5">
             <button
               type="button"
               onClick={() => setEscolhaCR('CRMEC')}
-              className={`min-h-[52px] px-4 py-3 rounded-xl font-black text-sm border transition-all cursor-pointer flex flex-col items-center justify-center ${
+              className={`min-h-[44px] px-3 py-2 rounded-xl font-bold text-xs border transition-all cursor-pointer flex flex-col items-center justify-center ${
                 escolhaCR === 'CRMEC'
-                  ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-lg shadow-amber-500/20'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700'
+                  ? 'bg-[#004d2c] text-white border-[#004d2c]'
+                  : 'bg-white hover:bg-gray-50 text-gray-800 border-gray-300'
               }`}
             >
-              <span>CR MECÂNICO</span>
-              <span className="text-[11px] font-bold opacity-80">Komatsu HD785 (CRMEC)</span>
+              <span>CR MECÂNICO (HD785)</span>
             </button>
             <button
               type="button"
               onClick={() => setEscolhaCR('CREL')}
-              className={`min-h-[52px] px-4 py-3 rounded-xl font-black text-sm border transition-all cursor-pointer flex flex-col items-center justify-center ${
+              className={`min-h-[44px] px-3 py-2 rounded-xl font-bold text-xs border transition-all cursor-pointer flex flex-col items-center justify-center ${
                 escolhaCR === 'CREL'
-                  ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-lg shadow-amber-500/20'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700'
+                  ? 'bg-[#004d2c] text-white border-[#004d2c]'
+                  : 'bg-white hover:bg-gray-50 text-gray-800 border-gray-300'
               }`}
             >
-              <span>CR ELÉTRICO</span>
-              <span className="text-[11px] font-bold opacity-80">Komatsu 730E (CREL)</span>
+              <span>CR ELÉTRICO (730E)</span>
             </button>
           </div>
         </div>
       )}
 
-      {/* Quando não há catálogo para o prefixo informado */}
-      {tagNormalizada && !perfilAtivo && !crPrecisaEscolha && (
-        <div className="bg-slate-900/90 border border-slate-700 rounded-xl p-3 flex items-center gap-2.5 text-xs text-slate-300 font-bold">
-          <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
-          <span>Sem catálogo para este tipo de equipamento ({tagNormalizada}). Utilize o campo de descrição livre abaixo.</span>
+      {/* Campo de busca / complemento com setinha */}
+      <div className="relative">
+        <input
+          ref={inputRef}
+          type="text"
+          value={itemEscolhido ? complemento : temCatalogoAtivo ? buscaInput : complemento}
+          onFocus={() => {
+            if (temCatalogoAtivo && !itemEscolhido) {
+              setDropdownOpen(true);
+            }
+          }}
+          onChange={e => handleInputChange(e.target.value)}
+          placeholder={
+            itemEscolhido
+              ? placeholderComplemento
+              : !tagNormalizada
+              ? 'Informe a TAG primeiro...'
+              : temCatalogoAtivo
+              ? 'Ex: Vazamento, 87, TC, radiador...'
+              : 'Descreva o sintoma em texto livre...'
+          }
+          className="w-full h-[44px] pl-3.5 pr-10 text-[13px] text-[#1f2426] placeholder-[#8a9490] bg-[#f2f3f2] border border-[#d9dedb] rounded-[8px] focus:bg-white focus:border-[#004d2c] focus:outline-none focus:ring-2 focus:ring-[#004d2c]/15 transition-all"
+        />
+        <button
+          type="button"
+          tabIndex={-1}
+          disabled={!temCatalogoAtivo}
+          onMouseDown={e => {
+            e.preventDefault();
+            if (!temCatalogoAtivo) return;
+            setDropdownOpen(prev => !prev);
+            inputRef.current?.focus();
+          }}
+          className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-md ${
+            temCatalogoAtivo
+              ? 'text-[#3a4245] hover:text-[#004d2c] cursor-pointer'
+              : 'text-[#b5bcbd] cursor-not-allowed'
+          }`}
+          title={temCatalogoAtivo ? 'Ver lista de sintomas do catálogo' : 'Escolha uma TAG com catálogo'}
+        >
+          <ChevronDown
+            className={`w-4 h-4 transition-transform duration-150 ${
+              dropdownOpen ? 'rotate-180 text-[#004d2c]' : ''
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* Etiqueta abaixo do campo após escolher: "87 Vazamento · AR Arrefecimento › TC Radiador" */}
+      {itemEscolhido ? (
+        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#e8f3ee] border border-[#b7dccb] text-[11px] text-[#004d2c] max-w-full">
+          <span className="font-mono font-bold bg-[#004d2c] text-white px-1.5 py-0.5 rounded text-[10px] shrink-0">
+            {itemEscolhido.sintomaCodigo}
+          </span>
+          <span className="font-medium truncate">
+            <strong className="font-bold">{itemEscolhido.sintomaNome}</strong>
+            {` · ${itemEscolhido.sistemaCodigo} ${itemEscolhido.sistemaNome} › ${itemEscolhido.componenteCodigo} ${itemEscolhido.componenteNome}`}
+          </span>
+          <button
+            type="button"
+            onClick={limparSelecaoCatalogo}
+            className="ml-1 text-[#004d2c] hover:text-red-600 font-bold text-[14px] leading-none cursor-pointer shrink-0"
+            title="Remover código do catálogo"
+          >
+            ×
+          </button>
         </div>
+      ) : (
+        <p className="text-[11px] text-[#5c666a] leading-snug">
+          {!tagNormalizada
+            ? 'Escolha a TAG primeiro para ver os códigos.'
+            : temCatalogoAtivo
+            ? 'Toque na setinha para ver os códigos ou digite para filtrar.'
+            : 'Sem catálogo: descreva em texto livre.'}
+        </p>
       )}
 
-      {/* Seletores em cascata quando há perfil ativo */}
-      {perfilAtivo && (
-        <div className="space-y-3.5">
-          {/* Busca Rápida acima dos seletores */}
-          <div className="relative">
-            <label className="block text-[11px] font-black text-slate-400 uppercase mb-1">
-              Busca rápida no catálogo {perfilAtivo} (ex.: "vazamento", "radiador", "87")
-            </label>
-            <div className="relative flex items-center">
-              <Search className="h-5 w-5 text-slate-400 absolute left-3.5 pointer-events-none" />
-              <input
-                type="text"
-                value={buscaRapida}
-                onChange={e => setBuscaRapida(e.target.value)}
-                placeholder={`Pesquisar sistema, componente ou sintoma em ${perfilAtivo}...`}
-                className="w-full min-h-[50px] pl-11 pr-10 py-2.5 bg-slate-900 border border-slate-700 focus:border-amber-500 rounded-xl text-sm font-bold text-white placeholder-slate-500 outline-none"
-              />
-              {buscaRapida && (
-                <button
-                  type="button"
-                  onClick={() => setBuscaRapida('')}
-                  className="absolute right-3 p-1.5 text-slate-400 hover:text-white cursor-pointer"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
+      {/* Lista de sintomas idêntica às colunas "CÓDIGO | SINTOMAS" da planilha */}
+      {dropdownOpen && temCatalogoAtivo && (
+        <div className="absolute left-0 right-0 z-50 mt-1 bg-white border border-[#d9dedb] rounded-[10px] shadow-2xl max-h-[340px] overflow-y-auto">
+          {sistemasAgrupados.length === 0 ? (
+            <div className="p-3.5 text-[12px] text-[#5c666a]">
+              Nada no catálogo para &lsquo;<strong className="text-[#1f2426]">{buscaInput}</strong>&rsquo;.
             </div>
-
-            {/* Lista de resultados da busca rápida */}
-            {buscaRapida.trim() !== '' && (
-              <div className="mt-2 bg-slate-900 border border-amber-500/40 rounded-xl max-h-64 overflow-y-auto divide-y divide-slate-800 shadow-2xl z-20">
-                {resultadosBuscaRapida.length === 0 ? (
-                  <div className="p-4 text-center text-xs text-slate-400 font-bold">
-                    Nenhuma combinação encontrada para "{buscaRapida}" no perfil {perfilAtivo}.
-                  </div>
-                ) : (
-                  resultadosBuscaRapida.map((item, idx) => (
+          ) : (
+            sistemasAgrupados.map(grupo => (
+              <div key={grupo.cabecalho}>
+                <div className="sticky top-0 z-10 px-3 py-1.5 bg-[#f2f3f2] border-y border-[#e3e7e4] text-[10px] font-bold uppercase tracking-wider text-[#5c666a]">
+                  {grupo.cabecalho}
+                </div>
+                <div className="divide-y divide-[#f2f3f2]">
+                  {grupo.itens.map(item => (
                     <button
-                      key={`${item.sistema.codigo}-${item.componente.codigo}-${item.sintoma.codigo}-${idx}`}
+                      key={item.codigoCompleto}
                       type="button"
-                      onClick={() => handleSelecionarResultadoBusca(item)}
-                      className="w-full text-left px-4 py-3.5 hover:bg-amber-500/15 active:bg-amber-500/25 transition-colors flex items-center justify-between gap-2 cursor-pointer"
+                      onMouseDown={e => {
+                        e.preventDefault();
+                        handleSelectItemCatalogo(item);
+                      }}
+                      className="w-full px-3 py-2.5 flex items-center justify-between gap-2 text-left hover:bg-[#e8f3ee]/70 transition-colors cursor-pointer"
                     >
-                      <div className="text-xs sm:text-sm font-bold text-slate-200 flex flex-wrap items-center gap-1.5">
-                        <span className="px-2 py-0.5 rounded bg-slate-800 text-amber-300 font-black">
-                          {item.sistema.codigo} – {item.sistema.nome}
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="min-w-[38px] px-2 py-0.5 rounded-[5px] bg-[#e6f2ec] text-[#004d2c] font-mono font-bold text-[11px] text-right shrink-0">
+                          {item.sintomaCodigo}
                         </span>
-                        <ChevronRight className="h-3.5 w-3.5 text-slate-500 shrink-0" />
-                        <span className="px-2 py-0.5 rounded bg-slate-800 text-sky-300 font-black">
-                          {item.componente.codigo} – {item.componente.nome}
-                        </span>
-                        <ChevronRight className="h-3.5 w-3.5 text-slate-500 shrink-0" />
-                        <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 font-black">
-                          {item.sintoma.codigo} – {item.sintoma.nome}
+                        <span className="font-bold text-[13px] text-[#1f2426] truncate">
+                          {item.sintomaNome}
                         </span>
                       </div>
-                      <span className="text-[11px] font-black text-amber-400 shrink-0 uppercase">
-                        Selecionar
+                      <span className="text-[12px] text-[#6c7579] shrink-0 text-right">
+                        {item.componenteCodigo} – {item.componenteNome}
                       </span>
                     </button>
-                  ))
-                )}
+                  ))}
+                </div>
               </div>
-            )}
-          </div>
-
-          {/* 3 Seletores Grandes (Fácil de tocar com luva) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {/* 1. SISTEMA */}
-            <div>
-              <label className="block text-[11px] font-black text-amber-400 uppercase mb-1 flex items-center gap-1.5">
-                <Layers className="h-3.5 w-3.5" />
-                1. SISTEMA ({sistemasDisponiveis.length})
-              </label>
-              <select
-                value={codSistema}
-                onChange={e => handleSelecionarSistema(e.target.value)}
-                className="w-full min-h-[52px] px-3.5 py-3 bg-slate-900 border border-slate-700 focus:border-amber-500 rounded-xl text-sm font-black text-white outline-none cursor-pointer"
-              >
-                <option value="">Selecione o Sistema...</option>
-                {sistemasDisponiveis.map(sis => (
-                  <option key={sis.codigo} value={sis.codigo}>
-                    {sis.codigo} – {sis.nome}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* 2. COMPONENTE */}
-            <div>
-              <label className="block text-[11px] font-black text-sky-400 uppercase mb-1 flex items-center gap-1.5">
-                <Cpu className="h-3.5 w-3.5" />
-                2. COMPONENTE {codSistema ? `(${componentesDisponiveis.length})` : ''}
-              </label>
-              <select
-                value={codComponente}
-                onChange={e => handleSelecionarComponente(e.target.value)}
-                disabled={!codSistema}
-                className="w-full min-h-[52px] px-3.5 py-3 bg-slate-900 border border-slate-700 focus:border-sky-500 disabled:opacity-50 rounded-xl text-sm font-black text-white outline-none cursor-pointer"
-              >
-                <option value="">
-                  {!codSistema ? 'Escolha o Sistema primeiro...' : 'Selecione o Componente...'}
-                </option>
-                {componentesDisponiveis.map(comp => (
-                  <option key={comp.codigo} value={comp.codigo}>
-                    {comp.codigo} – {comp.nome}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* 3. SINTOMA */}
-            <div>
-              <label className="block text-[11px] font-black text-emerald-400 uppercase mb-1 flex items-center gap-1.5">
-                <Activity className="h-3.5 w-3.5" />
-                3. SINTOMA {codComponente ? `(${sintomasDisponiveis.length})` : ''}
-              </label>
-              <select
-                value={codSintoma}
-                onChange={e => handleSelecionarSintoma(e.target.value)}
-                disabled={!codComponente}
-                className="w-full min-h-[52px] px-3.5 py-3 bg-slate-900 border border-slate-700 focus:border-emerald-500 disabled:opacity-50 rounded-xl text-sm font-black text-white outline-none cursor-pointer"
-              >
-                <option value="">
-                  {!codComponente ? 'Escolha o Componente primeiro...' : 'Selecione o Sintoma...'}
-                </option>
-                {sintomasDisponiveis.map(sint => (
-                  <option key={sint.codigo} value={sint.codigo}>
-                    {sint.codigo} – {sint.nome}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Resumo da Falha Catalogada Selecionada */}
-          {sistemaSelecionado && componenteSelecionado && sintomaSelecionado && (
-            <div className="bg-emerald-950/30 border border-emerald-500/40 rounded-xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm font-black text-emerald-300">
-                <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-                <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/30 text-emerald-200 font-mono text-xs">
-                  {`${perfilAtivo}/${sistemaSelecionado.codigo}/${componenteSelecionado.codigo}/${sintomaSelecionado.codigo}`}
-                </span>
-                <span>
-                  {sistemaSelecionado.codigo} › {componenteSelecionado.nome} › {sintomaSelecionado.nome}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={limparSelecaoCatalogo}
-                className="text-xs font-bold text-slate-400 hover:text-red-400 flex items-center gap-1 cursor-pointer"
-              >
-                <X className="h-3.5 w-3.5" />
-                Limpar
-              </button>
-            </div>
+            ))
           )}
         </div>
       )}
-
-      {/* Campo "Complemento / descrição" em texto livre */}
-      <div>
-        <label className="block text-[11px] font-black text-slate-400 uppercase mb-1">
-          Complemento / Descrição em texto livre {perfilAtivo ? '(Opcional)' : ''}
-        </label>
-        <input
-          type="text"
-          value={complemento}
-          onChange={e => handleComplementoChange(e.target.value)}
-          placeholder={placeholderComplemento}
-          className="w-full min-h-[48px] px-3.5 py-2.5 bg-slate-900 border border-slate-700 focus:border-amber-500 rounded-xl text-sm font-bold text-white placeholder-slate-500 outline-none"
-        />
-      </div>
     </div>
   );
 };
