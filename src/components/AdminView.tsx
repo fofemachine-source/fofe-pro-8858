@@ -364,6 +364,7 @@ export function AdminView({
           currentUser={currentUser}
           onSaveReport={onSaveReport}
           paradas={paradas}
+          equipamentos={equipamentos}
           onSelectParadasTab={() => setActiveTab('paradas')}
         />
       )}

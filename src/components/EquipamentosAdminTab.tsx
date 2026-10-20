@@ -72,6 +72,7 @@ export function EquipamentosAdminTab({
       if (!rawTag) return;
       const t = normalizarTag(rawTag);
       if (!t || t.length < 3 || !/^[A-Z]{2,4}-\d{2,5}$/.test(t)) return;
+      if (t.startsWith('CB-') || t.startsWith('CB')) return;
       if (mapaExistentes.has(t)) return;
       const atual = encontradas.get(t);
       if (atual) {
@@ -119,7 +120,7 @@ export function EquipamentosAdminTab({
     setEditandoEq(eq);
     setFormTag(eq.tag);
     setFormModelo(eq.modelo);
-    setFormTipo(eq.tipo || derivarTipoEquipamento(eq.tag));
+    setFormTipo(eq.grupo || eq.tipo || derivarTipoEquipamento(eq.tag, eq.modelo));
     setFormFrente(eq.frente || derivarFrenteDaTag(eq.tag));
     setFormAtivo(eq.ativo !== false);
     setModalAberto(true);
@@ -130,13 +131,17 @@ export function EquipamentosAdminTab({
     const tagNorm = normalizarTag(formTag);
     if (!tagNorm) return;
 
+    const grupoVal = formTipo.trim() || derivarTipoEquipamento(tagNorm, formModelo);
+    const isCB = tagNorm.startsWith('CB-') || tagNorm.startsWith('CB');
+
     const eqSalvo: Equipamento = {
-      id: editandoEq?.id || `eq-${tagNorm.toLowerCase()}`,
+      id: editandoEq?.id || `eq-${tagNorm}`,
       tag: tagNorm,
       modelo: formModelo.trim() || 'Modelo padrão',
-      tipo: formTipo.trim() || derivarTipoEquipamento(tagNorm),
+      tipo: grupoVal,
+      grupo: grupoVal,
       frente: formFrente || derivarFrenteDaTag(tagNorm),
-      ativo: formAtivo,
+      ativo: isCB ? false : formAtivo,
       atualizadoEm: new Date().toISOString()
     };
 
@@ -436,7 +441,7 @@ export function EquipamentosAdminTab({
                 >
                   <td className="py-3 px-4 font-bold text-[var(--um-cinza-escuro)]">{eq.tag}</td>
                   <td className="py-3 px-4 text-[var(--um-cinza-texto)]">{eq.modelo}</td>
-                  <td className="py-3 px-4 text-xs font-medium text-[var(--um-cinza-texto)]">{eq.tipo}</td>
+                  <td className="py-3 px-4 text-xs font-medium text-[var(--um-cinza-texto)]">{eq.grupo || eq.tipo}</td>
                   <td className="py-3 px-4">
                     <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-[var(--um-verde-principal)]/10 text-[var(--um-verde-principal)]">
                       {eq.frente}

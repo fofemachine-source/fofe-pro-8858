@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { User, Report, ReportStatus, Preventiva, Tecnico, Parada, Equipamento } from './types';
 import { PRESET_USERS, INITIAL_REPORTS, PRESET_TECNICOS, SAMPLE_TECNICOS_UM } from './data/mockData';
 import { PRESET_PREVENTIVAS } from './data/presetPreventivas';
-import { getEquipamentosIniciaisCompletos } from './data/equipamentosIniciais';
+import { getEquipamentosIniciaisCompletos, aplicarUpsertFrotaOficial } from './data/equipamentosIniciais';
 import { getTecnicosIniciaisPadrao } from './data/tecnicosIniciais';
 import { Login } from './components/Login';
 import { Navbar } from './components/Navbar';
@@ -209,7 +209,9 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
+          const { listaCompleta } = aplicarUpsertFrotaOficial(parsed);
+          try { localStorage.setItem('rft_equipamentos', JSON.stringify(listaCompleta)); } catch (e) {}
+          return listaCompleta;
         }
       } catch (e) {}
     }
@@ -365,38 +367,13 @@ export default function App() {
     };
   }, [isOffline]);
 
-  // 2.25 Listen to configuracoes/catalogo_falhas for dynamic catalog updates from Admin
+  // 2.25 Regra 2.2: Se existir catálogo salvo no banco (importado antes pela aba CATÁLOGO), APAGAR essa versão para o app usar o arquivo oficial CATALOGO_FALHAS
   useEffect(() => {
+    definirCatalogoCustomizado(null);
     if (isOffline) return;
 
     const docRef = doc(db, 'configuracoes', 'catalogo_falhas');
-    const unsubscribe = onSnapshot(docRef, (snap) => {
-      if (!snap.exists()) {
-        return;
-      }
-      try {
-        const data = snap.data();
-        if (data && data.catalogoJson) {
-          const parsedCatalogo = JSON.parse(data.catalogoJson);
-          if (parsedCatalogo && typeof parsedCatalogo === 'object') {
-            definirCatalogoCustomizado({
-              catalogo: parsedCatalogo,
-              atualizadoEm: data.atualizadoEm || new Date().toISOString(),
-              atualizadoPor: data.atualizadoPor || 'Admin',
-              nomeArquivo: data.nomeArquivo || ''
-            });
-          }
-        }
-      } catch (e) {
-        console.warn('Falha ao aplicar catálogo customizado do Firestore:', e);
-      }
-    }, (err) => {
-      console.warn('Aviso ao escutar configuracoes/catalogo_falhas:', err);
-    });
-
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
+    deleteDoc(docRef).catch(() => {});
   }, [isOffline]);
 
   // 2.3 Listen to paradas collection (Vale x U&M) & sync offline Parada actions
@@ -851,19 +828,19 @@ export default function App() {
     };
   }, [isOffline]);
 
-  // 2.4 Listen to equipamentos collection (shared equipment catalog)
+  // 2.4 Listen to equipamentos collection (shared equipment catalog) & apply official fleet UPSERT (Parte 1.1)
   useEffect(() => {
     if (isOffline) return;
 
     const eqQuery = query(collection(db, 'equipamentos'));
-    let seededEquipamentosOnce = false;
+    let upsertedOfficialOnce = false;
     const unsubscribe = onSnapshot(eqQuery, async (snapshot) => {
-      const porTag = new Map<string, Equipamento>();
+      const doBanco: Equipamento[] = [];
       snapshot.forEach((docSnap) => {
         try {
           const data = docSnap.data() as Equipamento;
           if (data && data.tag) {
-            porTag.set(data.tag.toUpperCase(), {
+            doBanco.push({
               ...data,
               id: docSnap.id,
               ativo: data.ativo !== false
@@ -874,27 +851,30 @@ export default function App() {
         }
       });
 
-      if (porTag.size === 0 && !seededEquipamentosOnce) {
-        seededEquipamentosOnce = true;
-        const iniciais = getEquipamentosIniciaisCompletos();
-        setEquipamentos(iniciais);
-        try { localStorage.setItem('rft_equipamentos', JSON.stringify(iniciais)); } catch (e) {}
+      if (!upsertedOfficialOnce) {
+        upsertedOfficialOnce = true;
+        const { listaCompleta, paraGravarNoBanco } = aplicarUpsertFrotaOficial(doBanco);
+        const ordenada = [...listaCompleta].sort((a, b) => a.tag.localeCompare(b.tag, 'pt-BR'));
+        setEquipamentos(ordenada);
+        try { localStorage.setItem('rft_equipamentos', JSON.stringify(ordenada)); } catch (e) {}
 
-        try {
-          const { writeBatch } = await import('firebase/firestore');
-          const batch = writeBatch(db);
-          iniciais.forEach((eq) => {
-            batch.set(doc(db, 'equipamentos', eq.id), eq);
-          });
-          await batch.commit();
-        } catch (err) {
-          console.warn('Aviso ao popular equipamentos iniciais no Firestore:', err);
+        if (paraGravarNoBanco.length > 0) {
+          try {
+            const { writeBatch } = await import('firebase/firestore');
+            const batch = writeBatch(db);
+            paraGravarNoBanco.forEach((eq) => {
+              batch.set(doc(db, 'equipamentos', eq.id), eq);
+            });
+            await batch.commit();
+          } catch (err) {
+            console.warn('Aviso ao sincronizar UPSERT da frota oficial no Firestore:', err);
+          }
         }
         return;
       }
 
-      if (porTag.size > 0) {
-        const lista = Array.from(porTag.values()).sort((a, b) => a.tag.localeCompare(b.tag, 'pt-BR'));
+      if (doBanco.length > 0) {
+        const lista = [...doBanco].sort((a, b) => a.tag.localeCompare(b.tag, 'pt-BR'));
         setEquipamentos(lista);
         try { localStorage.setItem('rft_equipamentos', JSON.stringify(lista)); } catch (e) {}
       }

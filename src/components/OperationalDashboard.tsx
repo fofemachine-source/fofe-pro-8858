@@ -3,10 +3,12 @@ import React, { useState, useEffect, Component, ReactNode, useMemo } from 'react
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { mapFirestoreDocToReport } from '../lib/syncEngine';
-import { Report, Atendimento, Pendencia, Preventiva, User, Parada } from '../types';
+import { Report, Atendimento, Pendencia, Preventiva, User, Parada, Equipamento } from '../types';
 import { getSegmentoAtual, calcularDuracaoTotalParadaMinutos, calcularHorasPorResponsavel } from '../lib/paradasEngine';
 import { CORES_RESPONSABILIDADE, NOMES_RESPONSABILIDADE, formatarMinutosEmHorasEMinutos } from '../theme/uEmTheme';
 import { formatarFalhaCard, listarPerfis, getCatalogo } from '../data/catalogoFalhas';
+import { getEquipamentosIniciaisCompletos, ORDEM_GRUPOS_EQUIPAMENTO, derivarTipoEquipamento } from '../data/equipamentosIniciais';
+import { normalizarTag } from '../lib/uEmDataUtils';
 import { formatDateTime } from './FileActions';
 import { 
   BarChart, RefreshCw, Layers, Shield, Wrench, Clock, Users,
@@ -103,6 +105,7 @@ interface OperationalDashboardProps {
   currentUser?: User;
   onSaveReport?: (updatedReport: Report) => void;
   paradas?: Parada[];
+  equipamentos?: Equipamento[];
   onSelectParadasTab?: () => void;
 }
 
@@ -115,6 +118,7 @@ export function OperationalDashboard({
   currentUser,
   onSaveReport,
   paradas = [],
+  equipamentos = [],
   onSelectParadasTab
 }: OperationalDashboardProps) {
   return (
@@ -128,6 +132,7 @@ export function OperationalDashboard({
         currentUser={currentUser}
         onSaveReport={onSaveReport}
         paradas={paradas}
+        equipamentos={equipamentos}
         onSelectParadasTab={onSelectParadasTab}
       />
     </DashboardErrorBoundary>
@@ -143,6 +148,7 @@ function OperationalDashboardContent({
   currentUser,
   onSaveReport,
   paradas = [],
+  equipamentos = [],
   onSelectParadasTab
 }: OperationalDashboardProps) {
   // Real-time local firestore sync
@@ -257,6 +263,41 @@ function OperationalDashboardContent({
   const totalMinutosGeral = useMemo(() => {
     return Object.values(totaisResp).reduce((a, b) => a + b, 0);
   }, [totaisResp]);
+
+  // Parte 1.2 – Contagem de frota no dashboard usando a QUANTIDADE DE EQUIPAMENTOS ATIVOS de cada grupo
+  const cardsFrota = useMemo(() => {
+    const baseEq = equipamentos && equipamentos.length > 0 ? equipamentos : getEquipamentosIniciaisCompletos();
+    const ativos = baseEq.filter(eq => eq.ativo !== false && !normalizarTag(eq.tag).startsWith('CB'));
+    const tagsParadasAgora = new Set(
+      (paradas || [])
+        .filter(p => p.situacao === 'ABERTA')
+        .map(p => normalizarTag(p.tag))
+    );
+
+    const descricoesGrupo: Record<string, string> = {
+      'Escavadeiras': 'Hitachi EX1200 / EX2500 · EH',
+      'Caminhões HD785': 'Komatsu HD785 · Frota CR-25xx',
+      'Caminhões 730E': 'Komatsu 730E · Frota CR-30xx/31xx',
+      'Perfuratrizes': 'PF-1031 · Frente PF',
+      'Motoniveladoras': 'MN-3001 · Frente INFRA'
+    };
+
+    return ORDEM_GRUPOS_EQUIPAMENTO.map((grupo) => {
+      const eqsGrupo = ativos.filter(eq => (eq.grupo || eq.tipo || derivarTipoEquipamento(eq.tag, eq.modelo)) === grupo);
+      const totalAtivos = eqsGrupo.length;
+      const paradosCount = eqsGrupo.filter(eq => tagsParadasAgora.has(normalizarTag(eq.tag))).length;
+      const disponiveisCount = Math.max(0, totalAtivos - paradosCount);
+      const dispPct = totalAtivos > 0 ? Math.round((disponiveisCount / totalAtivos) * 100) : 100;
+      return {
+        grupo,
+        subtitulo: descricoesGrupo[grupo] || grupo,
+        totalAtivos,
+        paradosCount,
+        disponiveisCount,
+        dispPct
+      };
+    });
+  }, [equipamentos, paradas]);
 
   const applyPreset = (preset: string) => {
     setActiveDatePreset(preset);
@@ -1474,6 +1515,75 @@ function OperationalDashboardContent({
             </div>
           </div>
         )}
+      </div>
+
+      {/* BLOCO: DISPONIBILIDADE E UTILIZAÇÃO POR FROTA (EQUIPAMENTOS ATIVOS - Parte 1.2) */}
+      <div className="bg-[var(--um-branco)] rounded-2xl border border-[var(--um-cinza-claro)] p-5 mb-6 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-[var(--um-cinza-claro)] mb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-[var(--um-fundo)] border border-[var(--um-cinza-claro)] text-[var(--um-verde-principal)]">
+              <Layers className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-[14px] sm:text-[16px] font-light uppercase tracking-wider text-[var(--um-verde-principal)]">
+                DISPONIBILIDADE E UTILIZAÇÃO POR FROTA (EQUIPAMENTOS ATIVOS)
+              </h2>
+              <p className="text-[12px] text-[var(--um-cinza-texto)] font-normal">
+                Contagem dinâmica dos equipamentos ativos por grupo oficial ({cardsFrota.reduce((acc, c) => acc + c.totalAtivos, 0)} ativos na frota).
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+          {cardsFrota.map((item) => (
+            <div
+              key={item.grupo}
+              className="bg-[var(--um-fundo)] border border-[var(--um-cinza-claro)] rounded-2xl p-4 flex flex-col justify-between relative overflow-hidden"
+            >
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[12px] font-medium uppercase tracking-wider text-[var(--um-cinza-escuro)]">
+                    {item.grupo}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-[var(--um-branco)] border border-[var(--um-cinza-claro)] text-[var(--um-verde-principal)]">
+                    {item.totalAtivos} {item.totalAtivos === 1 ? 'ativo' : 'ativos'}
+                  </span>
+                </div>
+                <p className="text-[10px] text-[var(--um-cinza-texto)] mt-0.5 truncate">
+                  {item.subtitulo}
+                </p>
+              </div>
+
+              <div className="mt-3 pt-2.5 border-t border-[var(--um-cinza-claro)] flex items-end justify-between">
+                <div>
+                  <span className="text-[10px] uppercase text-[var(--um-cinza-texto)] block">
+                    Disponíveis / Frota
+                  </span>
+                  <span className="text-xl font-light text-[var(--um-verde-principal)]">
+                    {item.disponiveisCount} <span className="text-xs text-[var(--um-cinza-texto)]">/ {item.totalAtivos}</span>
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span
+                    className={`px-2 py-0.5 rounded-md text-[11px] font-semibold ${
+                      item.paradosCount > 0
+                        ? 'bg-[var(--um-alerta-claro)] text-[var(--um-alerta-escuro)] border border-[var(--um-alerta)]'
+                        : 'bg-[var(--um-positivo-claro)] text-[var(--um-positivo-escuro)] border border-[var(--um-positivo)]'
+                    }`}
+                  >
+                    {item.dispPct}% DF
+                  </span>
+                  {item.paradosCount > 0 && (
+                    <span className="block text-[10px] text-[var(--um-alerta-escuro)] mt-0.5">
+                      {item.paradosCount} {item.paradosCount === 1 ? 'parado' : 'parados'}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* UPPER METRICS GRID (4 CARTÕES NO PADRÃO U&M) */}

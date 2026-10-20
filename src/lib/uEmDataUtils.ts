@@ -193,12 +193,12 @@ export function isTagValida(tag: string): boolean {
 
 /**
  * Deriva a Frente operacional a partir do prefixo da TAG (Regra 2)
- * EH -> EH; CR e CB -> CR; PF -> PF; demais -> INFRA
+ * EH -> EH; CR -> CR; PF -> PF; demais -> INFRA (CB removido da frota)
  */
 export function derivarFrenteDaTag(tag: string): 'EH' | 'CR' | 'PF' | 'INFRA' {
   const norm = normalizarTag(tag);
   if (norm.startsWith('EH-') || norm.startsWith('EH')) return 'EH';
-  if (norm.startsWith('CR-') || norm.startsWith('CR') || norm.startsWith('CB-') || norm.startsWith('CB')) return 'CR';
+  if (norm.startsWith('CR-') || norm.startsWith('CR')) return 'CR';
   if (norm.startsWith('PF-') || norm.startsWith('PF')) return 'PF';
   return 'INFRA';
 }

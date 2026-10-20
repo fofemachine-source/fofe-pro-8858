@@ -28,7 +28,7 @@ export interface FalhaCatalogada {
 
 export type CatalogoCompacto = Record<string, [string, string, [string, string, [string, string][]][]][]>;
 
-export const CATALOGO_FALHAS: CatalogoCompacto = {
+export const CATALOGO_FALHAS: Record<string, [string, string, [string, string, [string, string][]][]][]> = {
   "CRMEC": [
     ["AC","Ar condicionado",[["CP","Compressor",[["144","NA"]]],["LI","Linha",[["144","NA"]]],["CN","Condensador",[["144","NA"]]],["EV","Evaporador",[["144","NA"]]],["VL","Válvulas",[["144","NA"]]]]],
     ["AR","Arrefecimento",[["TC","Radiador",[["13","Obstrução"],["32","Danificado(a)"],["87","Vazamento"]]],["BB","Bomba",[["32","Danificado(a)"],["76","Baixa Vazão"],["87","Vazamento"]]],["VT","Ventilador",[["32","Danificado(a)"],["49","Baixa performace"]]],["TB","Tubulação",[["32","Danificado(a)"],["87","Vazamento"]]],["V/O","Vedação/O-ring",[["87","Vazamento"]]],["OL","Óleo / Fluído",[["141","SOS Crítico"],["142","SOS Monitorar"],["14","Superaquecimento"]]]]],
@@ -152,22 +152,6 @@ export const CATALOGO_FALHAS: CatalogoCompacto = {
     ["SPCA","Suspensão CA",[["SN","Suspensão normal",[["30","Cilindro com vazamento"],["70","Bucha/Rótula"],["132","Calibração"]]],["SC","Suspensão central",[["30","Cilindro com vazamento"],["70","Bucha/Rótula"],["132","Calibração"]]],["SD","Suspensão Dianteira",[["30","Cilindro com vazamento"],["70","Bucha/Rótula"],["132","Calibração"]]],["STE","Suspensão traseira equalizadora",[["30","Cilindro com vazamento"],["70","Bucha/Rótula"],["132","Calibração"]]]]],
     ["TR","Transmissão",[["TN","Tandem",[["67","Barulho/Vibração anormal"],["87","Vazamento"],["91","Trinca"]]],["TR","Transmissão",[["14","Superaquecimento"],["29","Filtro Saturado"],["34","Bomba danificada"],["45","Não engrenar"],["87","Vazamento"],["129","Pressão desregulada"],["141","SOS Crítico"],["142","SOS Monitorar"]]]]]
   ],
-  "CB": [
-    ["AC","Ar condicionado",[["CP","Compressor",[["144","NA"]]],["LI","Linha",[["144","NA"]]],["CN","Condensador",[["144","NA"]]],["EV","Evaporador",[["144","NA"]]],["VL","Válvulas",[["144","NA"]]]]],
-    ["AR","Arrefecimento",[["TC","Radiador",[["13","Obstrução"],["32","Danificado(a)"],["87","Vazamento"]]],["BB","Bomba",[["32","Danificado(a)"],["76","Baixa Vazão"],["87","Vazamento"]]],["VT","Ventilador",[["32","Danificado(a)"],["49","Baixa performace"]]],["TB","Tubulação",[["32","Danificado(a)"],["87","Vazamento"]]],["V/O","Vedação/O-ring",[["87","Vazamento"]]],["OL","Óleo / Fluído",[["141","SOS Crítico"],["142","SOS Monitorar"],["14","Superaquecimento"]]]]],
-    ["SPI","Supres. Incêndio",[["SPI","Supres. Incêndio",[["27","Extintor/Ampola danificado"],["40","Suporte danificado"],["48","Sensor danificado"],["108","Cartuchos danificado"],["112","Bicos difusores danificados"],["119","Extintor/Ampola vencido"],["124","Mecanismo disparador danificado"],["137","Mangueiras danificas"],["146","Princípio de Incêndio"]]]]],
-    ["BR","Borracharia",[["RO","Roda",[["42","Trinca/Danificada"],["47","Parafuso de fixação quebrado"],["94","Alojamento espanado"]]],["PN","Pneu",[["39","Bolha"],["43","Corte banda lateral"],["50","Anel de vedação danificado"],["64","Rodízio de pneu"],["87","Vazamento"],["116","Desgaste banda lateral"]]]]],
-    ["CB","Cabine",[["AMR","Amortecimento",[["93","Coxim/Amortecedores danificados"]]],["BNC","Banco",[["32","Danificado(a)"],["153","Amortecimento danificado"]]],["CS","Cinto de segurança",[["32","Danificado(a)"]]],["PAL","Pedais/ Alavancas",[["1","Falha de funcionalidade"],["22","Folga"],["32","Danificado(a)"]]],["PR","Porta",[["6","Trinca com defeito"],["8","Empeno"],["32","Danificado(a)"]]],["VD","Vidros",[["91","Trinca"],["128","Quebrado"]]],["JY","Joystick",[["1","Falha de funcionalidade"],["144","NA"]]]]],
-    ["DRGR","Direção Geral",[["DRGR","Direção Geral",[["20","Barra de direção danificada"],["31","Setor de direção danificado"]]]]],
-    ["EL","Elétrico",[["ALT","Alternador",[["144","Não se aplica"]]],["AS","Alarmes sonoros",[["144","Não se aplica"]]],["BÇ","Balança",[["144","NA"]]],["BT","Bateria",[["144","NA"]]],["BZ","Buzina",[["144","NA"]]],["CC","Curto-ciruito",[["144","NA"]]],["CG","Chave geral",[["144","NA"]]],["CH","Chicote",[["144","NA"]]],["IL","Iluminação",[["144","NA"]]],["IVR","Inversor",[["144","NA"]]],["LP","Limpador",[["144","NA"]]],["MA","Motor de arranque",[["144","NA"]]],["MC","Mau contato",[["144","NA"]]],["PI","Painel de instrumentos",[["144","NA"]]],["RA","Rádio",[["144","NA"]]],["SS","Sensor",[["144","NA"]]]]],
-    ["ESGR","Estrutura Geral",[["CHS","Chassi",[["72","Pino/Parafuso danificado"],["80","Torção"],["91","Trinca"],["147","Pino âncora Folga/Danificado"]]],["ST","Suportes",[["32","Danificado(a)"]]]]],
-    ["FRGR","Freio geral",[["FS","Freio de Serviço",[["10","Desgaste"],["11","Disco danificado"],["29","Filtro saturado"],["77","Baixa eficiência"],["87","Vazamento"],["92","Pinça danificada"],["32","Danificado(a)"]]],["FR","Freio Retardo",[["77","Baixa eficiência"],["32","Danificado(a)"]]],["FE","Freio de Estacionamento",[["10","Desgaste"],["11","Disco danificado"],["29","Filtro saturado"],["77","Baixa eficiência"],["87","Vazamento"],["92","Pinça danificada"]]]]],
-    ["GX","Graxa",[["GRX","Graxeiro",[["32","Danificado(a)"],["44","Válvula de retenção travada"],["139","Entupido"]]],["IN","Injetor",[["5","Obstruído"],["32","Danificado(a)"],["101","Desregulado"]]],["MG","Mangueira de graxa",[["53","Ressecada/ Tramas expostas"],["87","Vazamento"]]],["PG","Propulsora de graxa",[["32","Danificado(a)"],["87","Vazamento"]]],["TG","Tambor/Tanque de graxa",[["87","Vazamento"],["121","Baixo nível de graxa"]]]]],
-    ["IPROD","Implemento Rodoviários",[["BS","Báscula",[["24","Pino/Parafuso danificado"],["151","Trinca"]]],["CLLE","CL de elevação",[["0","Bucha/Olhal danificado"],["46","Quebra"]]],["TN","Tanque",[["67","Barulho/Vibração anormal"],["87","Vazamento"],["91","Trinca"]]],["MM","Mangueira/Mangote",[["32","Danificado(a)"],["87","Vazamento"]]],["CT","Carretel",[["32","Danificado(a)"]]],["BB","Bomba",[["32","Danificado(a)"],["76","Baixa Vazão"],["87","Vazamento"]]],["BI","Bico",[["32","Danificado(a)"]]],["FF","Filtro",[["10","Saturação"],["32","Danificado(a)"]]],["CP","Compressor",[["144","NA"]]],["MS","Máquina de solda",[["144","NA"]]],["MK","Munck",[["144","NA"]]],["RS","Registro",[["32","Danificado(a)"]]],["GU","Guincho",[["32","Danificado(a)"]]]]],
-    ["MD","Motor",[["MD","Motor",[["3","Ruído/Vibração anormal"],["15","Turbina Danifica"],["23","Filtro de ar saturado"],["56","Alta pressão de cárter"],["69","Tubo de descarga danificado"],["75","Excesso de Fumaça"],["87","Vazamento"],["106","Correia Danificada"],["107","Filtro de combustível saturado"],["109","Baixa potência/ Shutdown"],["115","Baixa pressão de bomba"],["135","ECM/Sensores danificados"],["141","SOS Crítico"],["142","SOS Monitorar"],["145","PTO"],["148","Tanque Diesel Vazamento/Danificado"]]]]],
-    ["SP","Suspensão",[["DD","Dianteira",[["0","Bucha/Olhal danificado"],["32","Danificado(a)"],["46","Quebra"],["87","Vazamento"],["132","Calibração"]]],["TA","Traseira",[["0","Bucha/Olhal danificado"],["32","Danificado(a)"],["46","Quebra"],["87","Vazamento"],["132","Calibração"]]]]],
-    ["TR","Transmissão",[["TN","Tandem",[["67","Barulho/Vibração anormal"],["87","Vazamento"],["91","Trinca"]]],["TR","Transmissão",[["14","Superaquecimento"],["29","Filtro Saturado"],["34","Bomba danificada"],["45","Não engrenar"],["87","Vazamento"],["129","Pressão desregulada"],["141","SOS Crítico"],["142","SOS Monitorar"]]]]]
-  ],
   "CD-CL-CO-CP-CG": [
     ["MD","Motor",[["MD","Motor",[["3","Ruído/Vibração anormal"],["15","Turbina Danifica"],["23","Filtro de ar saturado"],["56","Alta pressão de cárter"],["69","Tubo de descarga danificado"],["75","Excesso de Fumaça"],["87","Vazamento"],["106","Correia Danificada"],["107","Filtro de combustível saturado"],["109","Baixa potência/ Shutdown"],["115","Baixa pressão de bomba"],["135","ECM/Sensores danificados"],["141","SOS Crítico"],["142","SOS Monitorar"],["145","PTO"],["148","Tanque Diesel Vazamento/Danificado"]]]]],
     ["ESGR","Estrutura Geral",[["CHS","Chassi",[["72","Pino/Parafuso danificado"],["80","Torção"],["91","Trinca"],["147","Pino âncora Folga/Danificado"]]],["ST","Suportes",[["32","Danificado(a)"]]]]],
@@ -216,31 +200,111 @@ export const CATALOGO_FALHAS: CatalogoCompacto = {
 };
 
 /**
- * Objeto de configuração fácil de editar para mapeamento de frotas CR
+ * Regra 2.4: Exibição do sintoma "NA": mostrar "NA – Não se aplica".
+ */
+export function formatarNomeSintomaExibicao(nome: string): string {
+  if (!nome) return '';
+  if (nome.trim().toUpperCase() === 'NA') {
+    return 'NA – Não se aplica';
+  }
+  return nome;
+}
+
+/**
+ * Conferência obrigatória (Parte 2):
+ * Compara sistemas, componentes e códigos de cada perfil de CATALOGO_FALHAS
+ * e mostra erro no console se não bater exatamente.
+ */
+export const CONTAGEM_ESPERADA_CATALOGO: Record<string, { sistemas: number; componentes: number; codigos: number }> = {
+  'CRMEC': { sistemas: 18, componentes: 72, codigos: 192 },
+  'CREL': { sistemas: 16, componentes: 69, codigos: 189 },
+  'EH': { sistemas: 12, componentes: 70, codigos: 160 },
+  'MN': { sistemas: 16, componentes: 70, codigos: 174 },
+  'PM-RC': { sistemas: 16, componentes: 71, codigos: 176 },
+  'TE': { sistemas: 14, componentes: 67, codigos: 156 },
+  'CA': { sistemas: 17, componentes: 72, codigos: 189 },
+  'CD-CL-CO-CP-CG': { sistemas: 14, componentes: 65, codigos: 154 },
+  'EP-TH-PL': { sistemas: 13, componentes: 55, codigos: 138 },
+  'PF': { sistemas: 12, componentes: 66, codigos: 154 }
+};
+
+export function conferirCatalogoOficial(): boolean {
+  let tudoOk = true;
+  for (const [perfil, esperado] of Object.entries(CONTAGEM_ESPERADA_CATALOGO)) {
+    const sistemasArr = CATALOGO_FALHAS[perfil];
+    if (!sistemasArr) {
+      console.error(`[CATÁLOGO ERRO] Perfil "${perfil}" ausente em CATALOGO_FALHAS!`);
+      tudoOk = false;
+      continue;
+    }
+    const numSistemas = sistemasArr.length;
+    let numComponentes = 0;
+    let numCodigos = 0;
+    for (const [, , comps] of sistemasArr) {
+      numComponentes += comps.length;
+      for (const [, , sints] of comps) {
+        numCodigos += sints.length;
+      }
+    }
+    if (
+      numSistemas !== esperado.sistemas ||
+      numComponentes !== esperado.componentes ||
+      numCodigos !== esperado.codigos
+    ) {
+      console.error(
+        `[CATÁLOGO ERRO] Perfil ${perfil} divergente! Esperado: ${esperado.sistemas} sistemas, ${esperado.componentes} componentes, ${esperado.codigos} códigos. Encontrado: ${numSistemas} sistemas, ${numComponentes} componentes, ${numCodigos} códigos.`
+      );
+      tudoOk = false;
+    }
+  }
+  if (CATALOGO_FALHAS['CB']) {
+    console.error('[CATÁLOGO ERRO] O perfil "CB" ainda existe em CATALOGO_FALHAS, mas deveria ter sido removido!');
+    tudoOk = false;
+  }
+  if (tudoOk) {
+    console.log('[CATÁLOGO OK] Conferência obrigatória dos 10 perfis de CATALOGO_FALHAS aprovada sem erros.');
+  }
+  return tudoOk;
+}
+
+/**
+ * Regra 2.2: Se existir catálogo salvo anteriormente no navegador, apaga para o app usar este arquivo exato.
+ */
+if (typeof window !== 'undefined') {
+  try {
+    localStorage.removeItem('fofe_catalogo_falhas_custom_v1');
+    localStorage.removeItem('rft_catalogo_falhas_custom');
+  } catch (e) {}
+}
+
+// Executa o teste automático imediatamente ao carregar o módulo
+conferirCatalogoOficial();
+
+/**
+ * Mapeamento de frotas CR (Parte 1.2 e Parte 3.1):
+ * - CR-25xx -> "CRMEC" (Komatsu HD785, transmissão mecânica)
+ * - CR-30xx, CR-31xx, CR-35xx -> "CREL" (Komatsu 730E, acionamento elétrico)
  */
 export const MAPA_FROTA_CR: {
   CRMEC: string[];
   CREL: string[];
 } = {
-  CRMEC: ['25'], // Komatsu HD785, frota CR-25xx
-  CREL: ['30', '31', '35'] // Komatsu 730E, frotas CR-30xx, CR-31xx e CR-35xx
+  CRMEC: ['25'],
+  CREL: ['30', '31', '35']
 };
 
 export const DESCRICAO_PERFIS: Record<string, string> = {
   'CRMEC': 'CR Mecânico (HD785)',
   'CREL': 'CR Elétrico (730E)',
-  'EH': 'EH – Escavadeiras',
-  'MN': 'MN – Motoniveladoras',
-  'PM-RC': 'PM-RC – Pás Carregadeiras / Rolos',
-  'TE': 'TE – Tratores de Esteira',
-  'CA': 'CA – Caminhões Articulados',
-  'CB': 'CB – Caminhões Basculantes / Comboio',
-  'CD-CL-CO-CP-CG': 'CD-CL-CO-CP-CG – Rodoviários / Apoio',
-  'EP-TH-PL': 'EP-TH-PL – Empilhadeiras / Manipuladores',
-  'PF': 'PF – Perfuratrizes'
+  'EH': 'Escavadeiras',
+  'MN': 'Motoniveladoras',
+  'PM-RC': 'Pás Carregadeiras / Rolos',
+  'TE': 'Tratores de Esteira',
+  'CA': 'Caminhões Articulados',
+  'CD-CL-CO-CP-CG': 'Rodoviários / Apoio',
+  'EP-TH-PL': 'Empilhadeiras / Manipuladores',
+  'PF': 'Perfuratrizes'
 };
-
-const STORAGE_KEY_CATALOGO_CUSTOM = 'fofe_catalogo_falhas_custom_v1';
 
 export interface CatalogoCustomizadoSalvo {
   catalogo: CatalogoCompacto;
@@ -249,56 +313,33 @@ export interface CatalogoCustomizadoSalvo {
   nomeArquivo?: string;
 }
 
-let cachedCustomCatalogo: CatalogoCustomizadoSalvo | null = null;
-
 export function carregarCatalogoCustomizadoLocal(): CatalogoCustomizadoSalvo | null {
-  if (cachedCustomCatalogo) return cachedCustomCatalogo;
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_CATALOGO_CUSTOM);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as CatalogoCustomizadoSalvo;
-    if (parsed && parsed.catalogo && typeof parsed.catalogo === 'object') {
-      cachedCustomCatalogo = parsed;
-      return parsed;
-    }
-  } catch (e) {
-    console.warn('Falha ao ler catálogo customizado local:', e);
-  }
   return null;
 }
 
-export function definirCatalogoCustomizado(dados: CatalogoCustomizadoSalvo | null): void {
-  cachedCustomCatalogo = dados;
-  if (typeof window === 'undefined') return;
-  try {
-    if (!dados) {
-      localStorage.removeItem(STORAGE_KEY_CATALOGO_CUSTOM);
-    } else {
-      localStorage.setItem(STORAGE_KEY_CATALOGO_CUSTOM, JSON.stringify(dados));
-    }
-  } catch (e) {
-    console.warn('Falha ao salvar catálogo customizado local:', e);
+export function definirCatalogoCustomizado(_dados: CatalogoCustomizadoSalvo | null): void {
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.removeItem('fofe_catalogo_falhas_custom_v1');
+      localStorage.removeItem('rft_catalogo_falhas_custom');
+    } catch (e) {}
   }
 }
 
 export function obterFonteCatalogoAtiva(): CatalogoCompacto {
-  const custom = carregarCatalogoCustomizadoLocal();
-  if (custom && custom.catalogo && Object.keys(custom.catalogo).length > 0) {
-    return custom.catalogo;
-  }
   return CATALOGO_FALHAS;
 }
 
 /**
  * Converte o formato compacto do perfil para lista de objetos Sistema[]
- * Sempre usa o nome do sintoma do próprio perfil, nunca um dicionário global.
+ * Sempre usa SOMENTE CATALOGO_FALHAS[perfil], mantendo a mesma ordem da planilha
+ * e exibindo o sintoma "NA" como "NA – Não se aplica" (Regra 2.4).
  */
 export function getCatalogo(perfil: string): Sistema[] {
   if (!perfil) return [];
-  const fonte = obterFonteCatalogoAtiva();
   const key = perfil.trim().toUpperCase();
-  const sistemasRaw = fonte[key] || CATALOGO_FALHAS[key];
+  if (key === 'CB') return [];
+  const sistemasRaw = CATALOGO_FALHAS[key];
   if (!sistemasRaw) return [];
 
   return sistemasRaw.map(([codSis, nomeSis, componentesRaw]) => ({
@@ -309,19 +350,17 @@ export function getCatalogo(perfil: string): Sistema[] {
       nome: nomeComp,
       sintomas: (sintomasRaw || []).map(([codSint, nomeSint]) => ({
         codigo: codSint,
-        nome: nomeSint
+        nome: formatarNomeSintomaExibicao(nomeSint)
       }))
     }))
   }));
 }
 
 /**
- * Lista todos os perfis disponíveis no catálogo ativo
+ * Lista todos os perfis disponíveis no catálogo oficial (sem CB)
  */
 export function listarPerfis(): string[] {
-  const fonte = obterFonteCatalogoAtiva();
-  const keys = Object.keys(fonte);
-  return keys.length > 0 ? keys : Object.keys(CATALOGO_FALHAS);
+  return Object.keys(CATALOGO_FALHAS);
 }
 
 function removerAcentos(str: string): string {
@@ -333,7 +372,8 @@ function removerAcentos(str: string): string {
 }
 
 /**
- * Busca sem acento e sem diferenciar maiúsculas, por código ou nome de sistema, componente ou sintoma
+ * Busca sem acento e sem diferenciar maiúsculas, por código ou nome de sistema, componente ou sintoma,
+ * usando estritamente o perfil informado.
  */
 export function buscarNoCatalogo(
   perfil: string,
@@ -374,9 +414,7 @@ export function buscarNoCatalogo(
 }
 
 /**
- * 1. NORMALIZAÇÃO DA TAG
- * Converte para maiúsculas, insere hífen automaticamente ("eh4050", "EH4050", "EH 4050" -> "EH-4050")
- * e separa prefixo (letras) e número.
+ * Normaliza TAG no formato PREFIXO-NÚMERO (ex.: "CR3114" -> "CR-3114") e separa prefixo e número.
  */
 export function normalizarESepararTag(raw: string): {
   tagNormalizada: string;
@@ -408,7 +446,6 @@ export function normalizarESepararTag(raw: string): {
 
 /**
  * Verifica se a TAG é de um caminhão CR cujo número não se encaixa automaticamente em CRMEC ou CREL
- * (ex.: CR-9999), exigindo pergunta ao usuário ("CR MECÂNICO" / "CR ELÉTRICO").
  */
 export function precisaEscolherPerfilCR(tag: string): boolean {
   const { prefixo, numero } = normalizarESepararTag(tag);
@@ -420,19 +457,14 @@ export function precisaEscolherPerfilCR(tag: string): boolean {
 }
 
 /**
- * 2. FUNÇÃO perfilDaTag(tag): string | null
- * Regras pelo prefixo:
- * - EH → "EH" (escavadeiras)
- * - CR → número começando com 25 → "CRMEC"; começando com 30, 31 ou 35 → "CREL" (via MAPA_FROTA_CR)
- * - MN → "MN"
- * - PM ou RC → "PM-RC"
- * - TE → "TE"
- * - CA → "CA"
- * - CB → "CB"
- * - CD, CL, CO, CP ou CG → "CD-CL-CO-CP-CG"
- * - EP, TH ou PL → "EP-TH-PL"
- * - PF → "PF"
- * - Qualquer outro prefixo → null
+ * Parte 3.1 – perfilDaTag(tag):
+ * - EH → "EH"
+ * - CR-25xx → "CRMEC" (HD785, transmissão mecânica)
+ * - CR-30xx, CR-31xx, CR-35xx → "CREL" (730E, acionamento elétrico)
+ * - MN → "MN"; PF → "PF"; PM/RC → "PM-RC"; TE → "TE"; CA → "CA";
+ *   CD/CL/CO/CP/CG → "CD-CL-CO-CP-CG"; EP/TH/PL → "EP-TH-PL"
+ * - CB → null (sem catálogo; CB não faz parte da frota)
+ * - Outros → null (sem catálogo; texto livre)
  */
 export function perfilDaTag(tag: string): string | null {
   const { prefixo, numero } = normalizarESepararTag(tag);
@@ -449,6 +481,8 @@ export function perfilDaTag(tag: string): string | null {
     }
     case 'MN':
       return 'MN';
+    case 'PF':
+      return 'PF';
     case 'PM':
     case 'RC':
       return 'PM-RC';
@@ -456,8 +490,6 @@ export function perfilDaTag(tag: string): string | null {
       return 'TE';
     case 'CA':
       return 'CA';
-    case 'CB':
-      return 'CB';
     case 'CD':
     case 'CL':
     case 'CO':
@@ -468,8 +500,8 @@ export function perfilDaTag(tag: string): string | null {
     case 'TH':
     case 'PL':
       return 'EP-TH-PL';
-    case 'PF':
-      return 'PF';
+    case 'CB':
+      return null;
     default:
       return null;
   }
@@ -481,19 +513,20 @@ export function perfilDaTag(tag: string): string | null {
  */
 export function formatarFalhaCard(falha?: FalhaCatalogada | null, textoLegado?: string | null): string {
   if (falha && falha.sistema?.codigo && falha.componente?.nome && falha.sintoma?.nome) {
-    const base = `${falha.sistema.codigo} › ${falha.componente.nome} › ${falha.sintoma.nome}`;
+    const sintNome = formatarNomeSintomaExibicao(falha.sintoma.nome);
+    const base = `${falha.sistema.codigo} › ${falha.componente.nome} › ${sintNome}`;
     return falha.complemento?.trim() ? `${base} (${falha.complemento.trim()})` : base;
   }
   return textoLegado?.trim() || '';
 }
 
 /**
- * Formata a exibição completa para Histórico e Detalhe do Relatório:
- * Ex.: "EH/HD/CV/1 · HD – Hidráulico EH › CV – Comando de Válvulas › 1 – Falha de funcionalidade"
+ * Formata a exibição completa para Histórico e Detalhe do Relatório
  */
 export function formatarFalhaDetalhe(falha?: FalhaCatalogada | null, textoLegado?: string | null): string {
   if (falha && falha.codigoCompleto) {
-    const nomes = `${falha.sistema.codigo} – ${falha.sistema.nome} › ${falha.componente.codigo} – ${falha.componente.nome} › ${falha.sintoma.codigo} – ${falha.sintoma.nome}`;
+    const sintNome = formatarNomeSintomaExibicao(falha.sintoma.nome);
+    const nomes = `${falha.sistema.codigo} – ${falha.sistema.nome} › ${falha.componente.codigo} – ${falha.componente.nome} › ${falha.sintoma.codigo} – ${sintNome}`;
     const comp = falha.complemento?.trim() ? ` | Compl.: ${falha.complemento.trim()}` : '';
     return `[${falha.codigoCompleto}] ${nomes}${comp}`;
   }
@@ -515,7 +548,10 @@ export function construirFalhaCatalogada(params: {
     perfil: params.perfil,
     sistema: { codigo: params.sistema.codigo, nome: params.sistema.nome },
     componente: { codigo: params.componente.codigo, nome: params.componente.nome },
-    sintoma: { codigo: params.sintoma.codigo, nome: params.sintoma.nome },
+    sintoma: {
+      codigo: params.sintoma.codigo,
+      nome: formatarNomeSintomaExibicao(params.sintoma.nome)
+    },
     complemento: params.complemento?.trim() || '',
     codigoCompleto
   };
@@ -536,18 +572,12 @@ export interface ResultadoImportacaoCatalogo {
 }
 
 const PERFIS_VALIDOS_PLANILHA = [
-  'CRMEC', 'CREL', 'EH', 'MN', 'PM-RC', 'TE', 'CA', 'CB', 'CD-CL-CO-CP-CG', 'EP-TH-PL', 'PF'
+  'CRMEC', 'CREL', 'EH', 'MN', 'PM-RC', 'TE', 'CA', 'CD-CL-CO-CP-CG', 'EP-TH-PL', 'PF'
 ];
 
-/**
- * Lê um arquivo .xlsx com SheetJS para importação de catálogo no painel Admin.
- * Suporta tanto:
- * 1) Planilha plana com colunas PERFIL_CATALOGO, COD_SISTEMA, SISTEMA, COD_COMPONENTE, COMPONENTE, COD_SINTOMA, SINTOMA
- * 2) Planilha com abas por perfil (CRMEC, CREL, EH, MN, PM-RC, TE, CA, CB, CD-CL-CO-CP-CG, EP-TH-PL, PF) e cabeçalho "Código | Sistemas | Código | Componentes | Código | Sintomas"
- */
 export function lerPlanilhaCatalogoXlsx(buffer: ArrayBuffer): ResultadoImportacaoCatalogo {
   const wb = XLSX.read(buffer, { type: 'array' });
-  const baseAtiva = obterFonteCatalogoAtiva();
+  const baseAtiva = CATALOGO_FALHAS;
   const novoCatalogo: CatalogoCompacto = { ...baseAtiva };
   const perfisLidosSet = new Set<string>();
 
@@ -576,120 +606,12 @@ export function lerPlanilhaCatalogoXlsx(buffer: ArrayBuffer): ResultadoImportaca
     const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
     if (!rows || rows.length === 0) continue;
 
-    // Verifica se a aba possui coluna PERFIL_CATALOGO (formato plano)
-    let flatHeaderRow = -1;
-    let colPerfil = -1;
-    let colFlatSisCod = -1;
-    let colFlatSisNome = -1;
-    let colFlatCompCod = -1;
-    let colFlatCompNome = -1;
-    let colFlatSintCod = -1;
-    let colFlatSintNome = -1;
-
-    for (let r = 0; r < Math.min(rows.length, 25); r++) {
-      const rowNorm = rows[r].map(c => removerAcentos(String(c || '')).replace(/\s+/g, '_'));
-      const idxP = rowNorm.findIndex(c => c === 'perfil_catalogo' || c === 'perfil');
-      const idxSC = rowNorm.findIndex(c => c === 'cod_sistema' || c === 'codigo_sistema');
-      const idxSN = rowNorm.findIndex(c => c === 'sistema' || c === 'sistemas' || c === 'nome_sistema');
-      const idxCC = rowNorm.findIndex(c => c === 'cod_componente' || c === 'codigo_componente');
-      const idxCN = rowNorm.findIndex(c => c === 'componente' || c === 'componentes' || c === 'nome_componente');
-      const idxSiC = rowNorm.findIndex(c => c === 'cod_sintoma' || c === 'codigo_sintoma');
-      const idxSiN = rowNorm.findIndex(c => c === 'sintoma' || c === 'sintomas' || c === 'nome_sintoma');
-
-      if (idxP >= 0 && idxSC >= 0 && idxSN >= 0 && idxCC >= 0 && idxCN >= 0 && idxSiC >= 0 && idxSiN >= 0) {
-        flatHeaderRow = r;
-        colPerfil = idxP;
-        colFlatSisCod = idxSC;
-        colFlatSisNome = idxSN;
-        colFlatCompCod = idxCC;
-        colFlatCompNome = idxCN;
-        colFlatSintCod = idxSiC;
-        colFlatSintNome = idxSiN;
-        break;
-      }
-    }
-
-    if (flatHeaderRow >= 0) {
-      let ultPerfil = '';
-      let ultSisCod = '';
-      let ultSisNome = '';
-      let ultCompCod = '';
-      let ultCompNome = '';
-
-      for (let r = flatHeaderRow + 1; r < rows.length; r++) {
-        const row = rows[r];
-        if (!row || row.length === 0) continue;
-        const pRaw = String(row[colPerfil] ?? '').trim().toUpperCase();
-        const sCod = String(row[colFlatSisCod] ?? '').trim();
-        const sNom = String(row[colFlatSisNome] ?? '').trim();
-        const cCod = String(row[colFlatCompCod] ?? '').trim();
-        const cNom = String(row[colFlatCompNome] ?? '').trim();
-        const siCod = String(row[colFlatSintCod] ?? '').trim();
-        const siNom = String(row[colFlatSintNome] ?? '').trim();
-
-        if (!pRaw && !sCod && !sNom && !cCod && !cNom && !siCod && !siNom) continue;
-
-        if (pRaw) {
-          if (pRaw !== ultPerfil) {
-            ultSisCod = '';
-            ultSisNome = '';
-            ultCompCod = '';
-            ultCompNome = '';
-          }
-          ultPerfil = pRaw;
-        }
-        if (sCod || sNom) {
-          const nCod = sCod || ultSisCod;
-          if (nCod !== ultSisCod) {
-            ultCompCod = '';
-            ultCompNome = '';
-          }
-          ultSisCod = nCod;
-          ultSisNome = sNom || ultSisNome;
-        }
-        if (cCod || cNom) {
-          ultCompCod = cCod || ultCompCod;
-          ultCompNome = cNom || ultCompNome;
-        }
-
-        if (!ultPerfil || !ultSisCod || !ultCompCod || (!siCod && !siNom)) continue;
-
-        const mapaSistemas = getMapaPerfil(ultPerfil);
-        if (!mapaSistemas.has(ultSisCod)) {
-          mapaSistemas.set(ultSisCod, {
-            codigo: ultSisCod,
-            nome: ultSisNome || ultSisCod,
-            componentesMap: new Map()
-          });
-        }
-        const sisEntry = mapaSistemas.get(ultSisCod)!;
-        if (!sisEntry.componentesMap.has(ultCompCod)) {
-          sisEntry.componentesMap.set(ultCompCod, {
-            codigo: ultCompCod,
-            nome: ultCompNome || ultCompCod,
-            sintomas: []
-          });
-        }
-        const compEntry = sisEntry.componentesMap.get(ultCompCod)!;
-        const sintCodFinal = siCod || siNom;
-        const sintNomeFinal = siNom || siCod;
-        if (!compEntry.sintomas.some(([c]) => c === sintCodFinal)) {
-          compEntry.sintomas.push([sintCodFinal, sintNomeFinal]);
-        }
-      }
-      continue;
-    }
-
-    // Formato de aba por perfil (ex.: CRMEC, CREL, EH, PF...)
     const nomeLimpo = sheetName.trim().toUpperCase();
-    const perfilMatch = PERFIS_VALIDOS_PLANILHA.find(p => p === nomeLimpo) || (
-      baseAtiva[nomeLimpo] ? nomeLimpo : null
-    );
+    const perfilMatch = PERFIS_VALIDOS_PLANILHA.find(p => p === nomeLimpo);
     if (!perfilMatch) continue;
 
-    // Achar a linha de cabeçalho com "Código | Sistemas | Código | Componentes | Código | Sintomas"
     let headerRowIdx = -1;
-    let colSisCod = 1; // Por padrão ignora Coluna A (0) -> B=1, C=2, D=3, E=4, F=5, G=6
+    let colSisCod = 1;
     let colSisNome = 2;
     let colCompCod = 3;
     let colCompNome = 4;
@@ -714,12 +636,9 @@ export function lerPlanilhaCatalogoXlsx(buffer: ArrayBuffer): ResultadoImportaca
       }
     }
 
-    if (headerRowIdx === -1) {
-      headerRowIdx = 0;
-    }
+    if (headerRowIdx === -1) headerRowIdx = 0;
 
     const sistemasMap = getMapaPerfil(perfilMatch);
-
     let ultimoSisCod = '';
     let ultimoSisNome = '';
     let ultimoCompCod = '';
@@ -809,9 +728,6 @@ export function lerPlanilhaCatalogoXlsx(buffer: ArrayBuffer): ResultadoImportaca
   };
 }
 
-/**
- * Calcula sistemas, componentes e sintomas novos e removidos entre dois catálogos
- */
 export function calcularDiffCatalogo(
   antigo: CatalogoCompacto,
   novo: CatalogoCompacto
@@ -823,7 +739,6 @@ export function calcularDiffCatalogo(
     const sisAntigos = new Map((antigo[perfil] || []).map(([c, n, comps]) => [c, { nome: n, comps }]));
     const sisNovos = new Map((novo[perfil] || []).map(([c, n, comps]) => [c, { nome: n, comps }]));
 
-    // Sistemas novos
     for (const [codSis, dadosSis] of sisNovos.entries()) {
       if (!sisAntigos.has(codSis)) {
         diffs.push({
@@ -836,7 +751,6 @@ export function calcularDiffCatalogo(
       }
     }
 
-    // Sistemas removidos
     for (const [codSis, dadosSis] of sisAntigos.entries()) {
       if (!sisNovos.has(codSis)) {
         diffs.push({
@@ -846,71 +760,6 @@ export function calcularDiffCatalogo(
           chave: `${perfil}/${codSis}`,
           descricao: `Sistema ${codSis} – ${dadosSis.nome}`
         });
-      }
-    }
-
-    // Componentes e Sintomas em sistemas em comum
-    for (const [codSis, dadosSisNovo] of sisNovos.entries()) {
-      const dadosSisAntigo = sisAntigos.get(codSis);
-      if (!dadosSisAntigo) continue;
-
-      const compsAntigos = new Map((dadosSisAntigo.comps || []).map(([c, n, sints]) => [c, { nome: n, sints }]));
-      const compsNovos = new Map((dadosSisNovo.comps || []).map(([c, n, sints]) => [c, { nome: n, sints }]));
-
-      for (const [codComp, dadosComp] of compsNovos.entries()) {
-        if (!compsAntigos.has(codComp)) {
-          diffs.push({
-            perfil,
-            tipo: 'COMPONENTE',
-            acao: 'NOVO',
-            chave: `${perfil}/${codSis}/${codComp}`,
-            descricao: `${codSis} › Componente ${codComp} – ${dadosComp.nome}`
-          });
-        }
-      }
-
-      for (const [codComp, dadosComp] of compsAntigos.entries()) {
-        if (!compsNovos.has(codComp)) {
-          diffs.push({
-            perfil,
-            tipo: 'COMPONENTE',
-            acao: 'REMOVIDO',
-            chave: `${perfil}/${codSis}/${codComp}`,
-            descricao: `${codSis} › Componente ${codComp} – ${dadosComp.nome}`
-          });
-        }
-      }
-
-      for (const [codComp, dadosCompNovo] of compsNovos.entries()) {
-        const dadosCompAntigo = compsAntigos.get(codComp);
-        if (!dadosCompAntigo) continue;
-
-        const sintsAntigos = new Map((dadosCompAntigo.sints || []).map(([c, n]) => [c, n]));
-        const sintsNovos = new Map((dadosCompNovo.sints || []).map(([c, n]) => [c, n]));
-
-        for (const [codSint, nomeSint] of sintsNovos.entries()) {
-          if (!sintsAntigos.has(codSint)) {
-            diffs.push({
-              perfil,
-              tipo: 'SINTOMA',
-              acao: 'NOVO',
-              chave: `${perfil}/${codSis}/${codComp}/${codSint}`,
-              descricao: `${codSis} › ${codComp} › Sintoma ${codSint} – ${nomeSint}`
-            });
-          }
-        }
-
-        for (const [codSint, nomeSint] of sintsAntigos.entries()) {
-          if (!sintsNovos.has(codSint)) {
-            diffs.push({
-              perfil,
-              tipo: 'SINTOMA',
-              acao: 'REMOVIDO',
-              chave: `${perfil}/${codSis}/${codComp}/${codSint}`,
-              descricao: `${codSis} › ${codComp} › Sintoma ${codSint} – ${nomeSint}`
-            });
-          }
-        }
       }
     }
   }

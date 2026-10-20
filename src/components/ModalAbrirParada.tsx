@@ -4,7 +4,7 @@ import { Equipamento, FalhaCatalogada, Parada } from '../types';
 import { CODIGOS_VALE_FLAT } from '../data/codigosVale';
 import { getCatalogo, perfilDaTag, formatarFalhaCard } from '../data/catalogoFalhas';
 import { derivarFrenteDaTag, normalizarTag, removerAcentos } from '../lib/uEmDataUtils';
-import { getEquipamentosIniciaisCompletos, ORDEM_TIPOS_EQUIPAMENTO } from '../data/equipamentosIniciais';
+import { getEquipamentosIniciaisCompletos, ORDEM_GRUPOS_EQUIPAMENTO } from '../data/equipamentosIniciais';
 
 export interface DadosNovaParadaModal {
   tag: string;
@@ -58,11 +58,13 @@ function getNomePerfilAmigavel(perfil: string | null): string | null {
     case 'EH':
       return 'Escavadeiras';
     case 'CRMEC':
-      return 'CR mecânico (HD785)';
+      return 'CRMEC';
     case 'CREL':
-      return 'CR elétrico (730E)';
+      return 'CREL';
     case 'PF':
       return 'Perfuratrizes';
+    case 'MN':
+      return 'Motoniveladoras';
     default:
       return perfil;
   }
@@ -152,11 +154,11 @@ export function ModalAbrirParada({
     return () => document.removeEventListener('mousedown', handleMouseDown);
   }, []);
 
-  // Lista de equipamentos ativos (com fallback para EQUIPAMENTOS_INICIAIS)
+  // Lista de equipamentos ativos (somente ativos e nunca CB)
   const equipamentosAtivos = useMemo(() => {
     const base = equipamentos && equipamentos.length > 0 ? equipamentos : getEquipamentosIniciaisCompletos();
     return base
-      .filter(eq => eq.ativo !== false)
+      .filter(eq => eq.ativo !== false && !normalizarTag(eq.tag).startsWith('CB'))
       .slice()
       .sort((a, b) => a.tag.localeCompare(b.tag, 'pt-BR'));
   }, [equipamentos]);
@@ -182,15 +184,15 @@ export function ModalAbrirParada({
     });
   }, [equipamentosAtivos, tagFiltroLimpo, tagInput]);
 
-  // Agrupamento por tipo quando sem filtro (ou mesmo com filtro)
+  // Agrupamento por grupo quando sem filtro (ou mesmo com filtro)
   const gruposEquipamentos = useMemo(() => {
     const mapa = new Map<string, Equipamento[]>();
-    ORDEM_TIPOS_EQUIPAMENTO.forEach(tipo => mapa.set(tipo, []));
+    ORDEM_GRUPOS_EQUIPAMENTO.forEach(grupo => mapa.set(grupo, []));
 
     equipamentosFiltrados.forEach(eq => {
-      const tipo = eq.tipo || 'Outros equipamentos';
-      if (!mapa.has(tipo)) mapa.set(tipo, []);
-      mapa.get(tipo)!.push(eq);
+      const grupo = eq.grupo || eq.tipo || 'Outros';
+      if (!mapa.has(grupo)) mapa.set(grupo, []);
+      mapa.get(grupo)!.push(eq);
     });
 
     return Array.from(mapa.entries())
@@ -631,7 +633,7 @@ export function ModalAbrirParada({
                       <div key={tipo}>
                         <div className="sticky top-0 z-10 px-3 py-1.5 bg-[#f2f3f2] border-y border-[#e3e7e4] flex items-center justify-between">
                           <span className="text-[10px] font-bold uppercase tracking-wider text-[#3a4245]">
-                            {tipo}
+                            {tipo} ({lista.length})
                           </span>
                           <span className="text-[10px] font-bold text-[#004d2c] bg-white px-1.5 py-0.2 rounded border border-[#d9dedb]">
                             {lista.length}

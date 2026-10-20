@@ -113,6 +113,7 @@ export interface Equipamento {
   tag: string;
   modelo: string;
   tipo: string;
+  grupo?: string;
   frente: 'EH' | 'CR' | 'PF' | 'INFRA';
   ativo: boolean;
   createdAt?: string;
