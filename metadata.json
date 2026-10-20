@@ -1,0 +1,6 @@
+{
+  "name": "U&M - Relatório de Manutenção",
+  "description": "U&M MINERAÇÃO - RELATÓRIO DE MANUTENÇÃO. Sistema moderno, rápido e fácil de monitoramento de frentes e pendências.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

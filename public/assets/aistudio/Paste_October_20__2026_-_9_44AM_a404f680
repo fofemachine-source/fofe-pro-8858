@@ -1,0 +1,212 @@
+PROMPT DE MELHORIAS – APP "RELATÓRIO DE MANUTENÇÃO U&M"
+(copie tudo a partir da linha abaixo e cole no Google AI Studio, no projeto do app)
+====================================================================================
+
+Você vai evoluir o app "RELATÓRIO DE MANUTENÇÃO – U&M MINERAÇÃO" que já existe neste projeto. Leia todo o código antes de alterar. Mantenha tudo o que já funciona: login por perfil (Controle de Frota = mecânico/operador; Supervisor Admin), formulário do técnico (cabeçalho do turno, equipamentos atendidos, pendências, observações, fotos, rascunho, "Finalizar e enviar"), lista de relatórios, Dashboard Operacional, Modo TV, Preventivas e Técnicos. Use o MESMO mecanismo de armazenamento/sincronização que o app já usa (não troque o banco). Não apague dados existentes: faça migração compatível (campos novos opcionais).
+
+Implemente as 3 melhorias abaixo, nesta ordem.
+
+------------------------------------------------------------------
+MELHORIA 1 – CADASTRO DE TÉCNICOS POR PLANILHA (MATRÍCULA, NOME E FUNÇÃO)
+------------------------------------------------------------------
+1.1 Na aba TÉCNICOS do painel admin, adicionar o botão "IMPORTAR PLANILHA DE EFETIVO (.xlsx / .csv)".
+    - Ler a primeira aba com a biblioteca SheetJS (xlsx).
+    - A planilha tem linhas de título antes do cabeçalho. Procurar automaticamente a linha que contém as colunas: CHAPA | NOME | FUNÇÃO | DESCRIÇÃO SEÇÃO. Ler os dados a partir da linha seguinte.
+    - CHAPA = matrícula (guardar como texto, sem perder zeros à esquerda). NOME = nome completo. FUNÇÃO = cargo original. DESCRIÇÃO SEÇÃO = seção/turma (ex.: "UMCAMAN - Manutenção - Turma 2").
+    - Ignorar linhas vazias. Fazer UPSERT pela matrícula (se já existe, atualiza; se não existe, cria). Não duplicar.
+    - Mostrar uma pré-visualização antes de salvar: total lido, novos, atualizados, ignorados, e a contagem por grupo de função. Botões "Confirmar importação" e "Cancelar".
+1.2 Normalizar a função em GRUPOS (guardar o cargo original e o grupo):
+    - MECÂNICO: MECANICO I, II, III, MECANICO ESPECIALIZADO
+    - ELETRICISTA: ELETRICISTA I, II, III
+    - LUBRIFICADOR: LUBRIFICADOR I, II, III, AUXILIAR DE LUBRIFICACAO
+    - BORRACHEIRO: BORRACHEIRO I, II, MECANICO BORRACHEIRO
+    - SOLDADOR: SOLDADOR I, II, III
+    - INSPETOR: INSPETOR DE EQUIPAMENTOS (qualquer nível)
+    - AUXILIAR: AUXILIAR DE MANUTENCAO, APRENDIZ
+    - LAVADOR / PINTOR: LAVADOR, PINTOR
+    - OPERADOR/MOTORISTA: MOTORISTA, OPERADOR DE GUINDAUTO, OPERADOR DE EMPILHADEIRA
+    - SUPERVISÃO: SUPERVISOR DE MANUTENCAO, SUPERVISOR GERAL MANUTENCAO, CONTROLADOR DE MANUTENCAO, GERENTE DE MANUTENCAO, ENGENHEIRO
+    - ADMINISTRATIVO: ASSISTENTE ADMINISTRATIVO, ASSISTENTE TECNICO
+    - Qualquer outro cargo: OUTROS.
+    A comparação deve ignorar acentos, maiúsculas e espaços extras.
+1.3 Exibir nomes em formato "Nome Sobrenome" (primeira letra maiúscula), mas pesquisar sem acento.
+1.4 Os cards de contagem da aba Técnicos passam a mostrar os grupos acima. Os chips de filtro (Todos, Mecânico, Eletricista, Lubrificador, Borracheiro, Soldador, Inspetor, Auxiliar, Outros) filtram a lista. Manter Editar/Excluir e ativar/inativar técnico.
+1.5 No formulário do técnico (perfil Controle), o campo "TÉCNICO RESPONSÁVEL" e "Adicionar outros membros da equipe" passam a usar SOMENTE a lista cadastrada:
+    - Mostrar apenas técnicos ATIVOS dos grupos de campo (Mecânico, Eletricista, Lubrificador, Borracheiro, Soldador, Inspetor, Auxiliar, Lavador/Pintor, Operador/Motorista). Não mostrar Supervisão nem Administrativo.
+    - Cada item: Nome + "Mat. 000000" + selo do grupo. Busca por nome ou matrícula. Chips por grupo.
+    - Remover o "Digitar outro nome" do perfil Controle (manter só para o Admin, se necessário).
+    - Gravar no relatório: matrícula, nome e grupo de cada técnico.
+1.6 LGPD: os nomes e matrículas ficam apenas no banco do app (nunca fixos no código-fonte). Somente o perfil Admin pode importar, editar ou excluir. O perfil Controle só vê nome, matrícula e grupo na seleção.
+
+------------------------------------------------------------------
+MELHORIA 2 – PADRONIZAÇÃO VISUAL E DE DADOS (PADRÃO U&M)
+------------------------------------------------------------------
+2.1 Visual: criar um arquivo único de tema (cores, fontes, tamanhos, raios) e aplicar em todas as telas.
+    - Cor principal: verde U&M #004d2c (já usado no app). Usar as mesmas variações de verde em cabeçalhos de seção, botões principais e abas ativas.
+    - Uma única família de fonte em todo o app (a mesma já usada no cabeçalho), com tamanhos padronizados: título 20, seção 14, rótulo 11 em maiúsculas, texto 14.
+    - Cores de status fixas em todo o app: Liberado = verde; Em manutenção = azul; Aguardando = âmbar; Pendência = vermelho; Rascunho = laranja.
+    - Cores fixas de RESPONSABILIDADE (usadas na Melhoria 3): Manutenção = azul #1E88E5; Produção = laranja #FB8C00; Vale = roxo #8E24AA; Externo = cinza-azulado #607D8B; Acidente = vermelho #E53935; A definir = amarelo #FBC02D.
+2.2 Textos: corrigir rótulos inconsistentes:
+    - Nos cards da lista de relatórios, trocar "ELETRICISTA RESPONSÁVEL" por "TÉCNICO RESPONSÁVEL" (o técnico pode ser de qualquer função).
+    - Na aba Preventivas, corrigir os cabeçalhos truncados ou com erro ("HORA PRTENETI", "HORA PRETENETI", "LIMITE DE HORIMET", "TAG. EQU", "DATA INI") para: DATA INÍCIO | TAG | HORA PREVENTIVA | HORAS FALTANTES | LIMITE DE HORÍMETRO | STATUS | AÇÃO.
+    - Trocar "NÚMERO OM" por "NÚMERO DA OM/OS" e, no dashboard, mostrar "—" quando vazio (em vez de "NÃO INFORMADO").
+2.3 Dados:
+    - TAG do equipamento sempre em maiúsculas no formato PREFIXO-NÚMERO (ex.: EH-5004, CR-3114, PF-1031). Validar com a expressão ^[A-Z]{2,3}-\d{3,5}$ e corrigir automaticamente "cr3114" ou "CR 3114" para "CR-3114".
+    - Frente derivada da TAG quando possível: EH → EH (escavadeiras), CR → CR (caminhões), PF → PF, demais → INFRA (permitir alterar).
+    - Datas sempre dd/mm/aaaa e horas 24h (HH:mm). Todos os tempos guardados em ISO com fuso America/Sao_Paulo.
+    - Turmas: A, B, C, D, ADM, 1/3, 2/3. Horários: 18:00–06:00, 06:00–18:00, 07:00–17:00 (ADM).
+    - Códigos sempre exibidos como "HMC 9130 – AG ATENDIMENTO".
+2.4 Segurança: o botão "ZERAR BANCO GERAL" e "ZERAR BANCO DE CADASTRO" devem pedir confirmação digitando a palavra ZERAR e ficar disponíveis só para o Admin.
+
+------------------------------------------------------------------
+MELHORIA 3 – CONTROLE DA PARADA REAL E TEMPO POR RESPONSÁVEL (CÓDIGOS VALE)
+------------------------------------------------------------------
+Objetivo: ver quanto tempo o equipamento está parado DE FATO, quanto tempo está em cada situação e de quem é a responsabilidade de cada período (Manutenção, Produção, Vale, Externo, Acidente ou A definir). Exemplo que precisa funcionar: "CR-3114 parado há 3h00 no total · status atual: AG SEGREGAÇÃO (HMC 9120 AG OPERAÇÃO) há 1h00 · responsável: Supervisor de Produção do turno", com o histórico das 2 horas anteriores (ex.: AG PEÇAS, buscando peça) visível e editável.
+
+3.1 Novo modelo de dados "Parada" (uma por equipamento parado):
+    Parada {
+      id, tag, frente,
+      inicioParada,            // hora REAL em que o equipamento parou
+      fimParada|null,          // preenchido quando o equipamento volta a operar
+      numeroOS|null, sintomaInicial|null,
+      situacao: 'ABERTA' | 'ENCERRADA',
+      segmentos: Segmento[],   // linha do tempo, em ordem, sem buracos e sem sobreposição
+      relatorioIds: string[],  // relatórios de técnico ligados a esta parada
+      criadoPor, criadoEm, atualizadoPor, atualizadoEm
+    }
+    Segmento {
+      id, codigo,              // ex.: "HMC 9120"
+      nome,                    // ex.: "AG OPERACAO"
+      situacao: 'EXEC' | 'AG',
+      responsavel: 'MANUTENCAO' | 'PRODUCAO' | 'VALE' | 'EXTERNO' | 'ACIDENTE' | 'A_DEFINIR',
+      responsavelFuncao,       // ex.: "Supervisor de Produção do turno"
+      inicio, fim|null,        // fim = null somente no segmento atual
+      complemento|null,        // ex.: TAG da prancha, nº da PTS, quem da Vale interditou
+      origem: 'ADMIN' | 'TECNICO' | 'AUTOMATICO',
+      editadoPor, editadoEm
+    }
+    Guardar também um LOG de auditoria de cada alteração (quem, quando, valor anterior, valor novo).
+
+3.2 Regras de tempo:
+    - Tempo total parado = agora (ou fimParada) − inicioParada.
+    - Tempo no status atual = agora − início do segmento atual.
+    - Ao aplicar um novo status, o segmento atual é fechado na hora escolhida (padrão: agora) e o novo começa nessa mesma hora.
+    - O primeiro segmento sempre começa em inicioParada. Se ninguém informar nada, o período entre a parada e a chegada do técnico fica como "HMC 9130 AG ATENDIMENTO" (Manutenção, aguardando técnico).
+    - Ao inserir ou editar um segmento no passado, ajustar os vizinhos automaticamente para não deixar buraco nem sobreposição; avisar se a edição apagar algum período.
+    - A soma dos segmentos deve ser sempre igual ao tempo total parado.
+    - O código escolhido define a situação (EXEC/AG) e o responsável SUGERIDO (da base abaixo). O Admin pode trocar o responsável quando o código vier como A_DEFINIR (ex.: AG PTS pode ser Manutenção ou Produção, conforme quem emite a PTS) e deve escrever o motivo no complemento.
+    - Relógios atualizam a cada 30 segundos no dashboard e no Modo TV.
+
+3.3 Ligação com o relatório do técnico (perfil Controle):
+    - No bloco "Equipamento #N", adicionar o campo opcional "HORA REAL DA PARADA" (data e hora) logo abaixo de TAG/OM/Horímetro.
+    - Ao finalizar o relatório: se já existe Parada ABERTA para a TAG, ligar o relatório a ela; se não existe, criar a Parada com inicioParada = "hora real da parada" (ou, se vazia, a hora de início do atendimento).
+    - Criar automaticamente o segmento "EXEC MANUT" do HORA INÍCIO até a HORA FIM do técnico (código conforme o tipo: HMC 9000 corretiva, MPS 7000 preventiva, MPNS 8000 programada; o técnico escolhe o tipo em botões CORRETIVA / PREVENTIVA / PROGRAMADA). O período antes da hora início fica como AG ATENDIMENTO, salvo se o Admin já tiver lançado outra coisa.
+    - Se o técnico informar "Previsão de liberação", mostrar essa previsão no card da parada.
+    - Quando o técnico marcar o equipamento como liberado, criar o segmento "HOI 5936 LIBERADO PELA MANUT" (Produção). O Admin encerra a parada quando o operador assumir (fimParada).
+
+3.4 Painel Admin – nova aba "PARADAS" (entre DASHBOARD e PREVENTIVAS) e bloco no DASHBOARD:
+    a) Cards "EQUIPAMENTOS PARADOS AGORA", ordenados pelo maior tempo parado. Cada card mostra:
+       - TAG e frente; "Parado há 3h00" (grande);
+       - Status atual: código + nome + "há 1h00", com a cor do responsável;
+       - Responsável: classe (ex.: PRODUÇÃO) + função (ex.: Supervisor de Produção do turno);
+       - Barra horizontal da linha do tempo, dividida pelos segmentos e colorida pela classe de responsável (passar o mouse mostra código, início, fim e duração);
+       - Mini-resumo: "Manutenção 2h00 · Produção 1h00 · Vale 0h00 · Externo 0h00";
+       - Técnicos ligados e previsão de liberação.
+    b) Botões rápidos no card (só Admin), que fecham o segmento atual e abrem o novo:
+       AGUARDANDO TÉCNICO (HMC 9130) · EM MANUTENÇÃO (HMC 9000) · AG SEGREGAÇÃO / OPERADOR (HMC 9120) · AG PEÇAS (HMC 9118) · AG ACESSO (HMC 9115) · AG PTS (HMC 9135) · AG MAU TEMPO (HMC 9126) · LIBERADO (HOI 5936) · OUTRO CÓDIGO… (abre a busca).
+       Ao clicar, abrir um modal com: código (pré-selecionado), hora de início (padrão agora, editável), responsável (sugerido), função do responsável, complemento. Botão "Aplicar".
+    c) Busca de código Vale: campo com busca por número ou nome, filtros por tipo (MPS, MPNS, HMC, HAC, HOI/HAO/HEF), por situação (EXEC/AG) e por responsável. Mostrar código, nome, responsável sugerido, "quem responde pela hora", se pode pedir expurgo à Vale e o exemplo.
+    d) Tela de detalhe da parada (clicar no card): tabela do histórico com Código | Nome | Responsável | Função | Início | Fim | Duração | Complemento | Origem | Editado por. O Admin pode: editar código/horários/responsável/complemento de qualquer linha, inserir um período no passado (ex.: das 07:00 às 09:00 AG PEÇAS – buscando peça), dividir um período em dois, excluir um período (os vizinhos se ajustam), alterar inicioParada e encerrar/reabrir a parada. Tudo registrado no log de auditoria.
+    e) Botão "+ ABRIR PARADA" no Admin, para registrar uma parada antes de o técnico chegar (TAG, hora real da parada, status inicial – padrão AG ATENDIMENTO).
+    f) Resumo por período (usar os filtros de data/hora/TAG que o dashboard já tem): horas por responsável (Manutenção, Produção, Vale, Externo, Acidente, A definir) em barras e em %, total de horas paradas, ranking dos códigos com mais horas, e a lista de períodos A_DEFINIR que ainda precisam de decisão.
+    g) Exportar CSV/Excel das paradas e dos segmentos (uma linha por segmento) para conferência com a planilha e com a Vale.
+    h) No Modo TV, mostrar os cards de equipamentos parados e o resumo por responsável.
+
+3.5 Perfil Controle: só pode criar/atualizar pelo relatório (3.3). Não pode editar o histórico da parada.
+
+------------------------------------------------------------------
+BASE DE CÓDIGOS VALE x U&M (criar o arquivo de dados abaixo, ex.: src/data/codigosVale.ts)
+------------------------------------------------------------------
+Cada item: nome no sistema, lista de códigos (prefixo + número), situação (EXEC = executando / AG = aguardando), responsável sugerido, quem responde pela hora, se pode pedir expurgo à Vale e o significado. Prefixos: MPS 7xxx = preventiva sistemática; MPNS 8xxx = programada; HMC 9xxx = corretiva; HAC 1xxx = acidente; HOI/HAO/HEF = códigos operacionais (fronteira Produção x Manutenção). Expandir para uma lista plana (um item por código) para a busca.
+Fonte: Árvore de códigos Vale x U&M v1 (material de treinamento HxGN OP Pro). Itens marcados "(validar)" ou "(a decidir)" ainda dependem de confirmação com a Vale: mostrar um selo "A VALIDAR" neles.
+
+export const CODIGOS_VALE = [
+  {"nome":"EXEC MANUT","codigos":["MPS 7000","MPNS 8000","HMC 9000"],"sit":"EXEC","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Qualquer manutenção. 7000 preventiva, 9000 corretiva (8000 programada, se a gestão decidir usar MPNS). Já calc"},
+  {"nome":"EXEC PERIC ACIDENTE","codigos":["HAC 1091"],"sit":"EXEC","resp":"ACIDENTE","quem":"Apuração do acidente","expurgo":"Definido na apuração do acidente","ex":"Perícia do acidente em andamento."},
+  {"nome":"EXEC MANUT ACIDENTE","codigos":["HAC 1090"],"sit":"EXEC","resp":"ACIDENTE","quem":"Apuração do acidente","expurgo":"Definido na apuração do acidente","ex":"Manutenção executando reparo após acidente."},
+  {"nome":"EXEC SIST EMBARCADOS/AUTOMACAO","codigos":["MPS 7031","MPNS 8031","HMC 9031"],"sit":"EXEC","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"A decidir com a Vale (D-09): instalação e falha do Hexagon","ex":"Serviço em sistema embarcado: Hexagon/tablet, câmera, CAS, telemetria."},
+  {"nome":"AG LIBERACAO DE ACESSO","codigos":["MPS 7115","MPNS 8115","HMC 9115"],"sit":"AG","resp":"PRODUCAO","quem":"Dono de Acesso / vias","expurgo":"SIM","ex":"Manutenção não chega na máquina porque o acesso precisa ser acertado pela operação."},
+  {"nome":"AG BORRACHARIA","codigos":["MPS 7110","MPNS 8110","HMC 9110"],"sit":"AG","resp":"A_DEFINIR","quem":"Dono de Borracharia","expurgo":"Depende do dono da borracharia","ex":"Aguardando borracheiro."},
+  {"nome":"AG COMBOIO","codigos":["HMC 9113"],"sit":"AG","resp":"A_DEFINIR","quem":"Dono de Comboio de lubrificação / atendimento de campo da manutenção","expurgo":"Depende do dono do comboio","ex":"Manutenção de campo aguardando comboio (caminhão/técnico)."},
+  {"nome":"AG CONDICAO SEGURA","codigos":["MPS 7114","MPNS 8114","HMC 9114"],"sit":"AG","resp":"A_DEFINIR","quem":"Dono de Segregação / isolamento da área (leiras)","expurgo":"Caso a caso","ex":"Manutenção interrompida esperando condição segura / ferramenta de segurança."},
+  {"nome":"AG DETONACAO","codigos":["MPS 7125","MPNS 8125","HMC 9125"],"sit":"AG","resp":"PRODUCAO","quem":"Dono de Detonação (fogo)","expurgo":"SIM","ex":"Manutenção parada porque a máquina está no cerco da detonação."},
+  {"nome":"AG LOCOMOCAO","codigos":["MPS 7116","MPNS 8116","HMC 9116"],"sit":"AG","resp":"A_DEFINIR","quem":"Dono de Prancha / carreta (transporte de equipamento)","expurgo":"Depende do dono da prancha","ex":"Máquina indo (ou aguardando ir) para a oficina: deslocando ou esperando prancha."},
+  {"nome":"AG LUBRIFICACAO","codigos":["MPS 7117","MPNS 8117","HMC 9117"],"sit":"AG","resp":"A_DEFINIR","quem":"Dono de Comboio de lubrificação / atendimento de campo da manutenção","expurgo":"Depende do dono do comboio","ex":"Aguardando lubrificação."},
+  {"nome":"AG RECURSO/FERRAMENTAL","codigos":["MPS 7121","MPNS 8121","HMC 9121"],"sit":"AG","resp":"A_DEFINIR","quem":"Dono de Munck, ponte rolante e ferramental especial","expurgo":"Depende do dono do recurso","ex":"Aguardando recurso (munck, ponte rolante) ou ferramenta."},
+  {"nome":"AG OPERACAO","codigos":["MPS 7120","MPNS 8120","HMC 9120"],"sit":"AG","resp":"PRODUCAO","quem":"Dono de Operador para deslocar/testar a máquina em manutenção","expurgo":"SIM","ex":"Máquina quebrada; a manutenção está esperando a Produção."},
+  {"nome":"AG PTS","codigos":["MPS 7135","MPNS 8135","HMC 9135"],"sit":"AG","resp":"A_DEFINIR","quem":"Dono de Emissão / liberação de PTS","expurgo":"SIM, se a PTS depende de outra área","ex":"Aguardando PTS (permissão de trabalho) para iniciar a manutenção."},
+  {"nome":"AG ATENDIMENTO","codigos":["MPS 7130","MPNS 8129","HMC 9130"],"sit":"AG","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"A máquina parou por falha e a manutenção AINDA NÃO assumiu (da parada até o aviso/chegada)."},
+  {"nome":"AG AVALIACAO","codigos":["MPNS 8108","HMC 9108"],"sit":"AG","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Parada aguardando avaliação: ainda não se sabe se é falha."},
+  {"nome":"AG ENERGIA","codigos":["MPS 7127","MPNS 8127","HMC 9127"],"sit":"AG","resp":"EXTERNO","quem":"Externo","expurgo":"A validar com a Vale (concessionária)","ex":"Manutenção parada por falta de energia da concessionária."},
+  {"nome":"AG MANUT","codigos":["HMC 9100"],"sit":"AG","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"A máquina parou para manutenção, mas a manutenção ainda não começou (ex.: falta levar até a oficina, falta mão"},
+  {"nome":"AG MAU TEMPO","codigos":["MPS 7126","MPNS 8126","HMC 9126"],"sit":"AG","resp":"EXTERNO","quem":"Externo","expurgo":"A validar com a Vale","ex":"Manutenção parada por chuva/raios/neblina."},
+  {"nome":"AG MAO DE OBRA","codigos":["MPS 7119","MPNS 8119","HMC 9119"],"sit":"AG","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Aguardando mão de obra (sem especificar)."},
+  {"nome":"AG PTS ACIDENTE","codigos":["HAC 1135"],"sit":"AG","resp":"ACIDENTE","quem":"Apuração do acidente","expurgo":"Definido na apuração do acidente","ex":"Aguardando PTS para tratar o acidente."},
+  {"nome":"AG PERICIA ACIDENTE","codigos":["HAC 1191"],"sit":"AG","resp":"ACIDENTE","quem":"Apuração do acidente","expurgo":"Definido na apuração do acidente","ex":"Aguardando perícia."},
+  {"nome":"AG PECAS","codigos":["MPS 7118","MPNS 8118","HMC 9118"],"sit":"AG","resp":"MANUTENCAO","quem":"Dono de Almoxarifado / suprimentos (peças)","expurgo":"NÃO","ex":"Falha já conhecida, aguardando peça/material."},
+  {"nome":"AG MANUT ACIDENTE","codigos":["HAC 1190"],"sit":"AG","resp":"ACIDENTE","quem":"Apuração do acidente","expurgo":"Definido na apuração do acidente","ex":"Aguardando reparo após acidente."},
+  {"nome":"AG SIST EMBARCADOS/AUTOMACAO","codigos":["MPS 7131","MPNS 8131","HMC 9131"],"sit":"AG","resp":"A_DEFINIR","quem":"Dono de Sistemas embarcados / Hexagon","expurgo":"A decidir com a Vale (D-09): instalação e falha do Hexagon","ex":"Aguardando técnico de sistemas embarcados."},
+  {"nome":"AG BOX","codigos":["MPS 7112","MPNS 8112","HMC 9112"],"sit":"AG","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Aguardando vaga na oficina."},
+  {"nome":"EXEC BORRACHARIA","codigos":["MPS 7010","MPNS 8010","HMC 9010"],"sit":"EXEC","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Borracheiro trabalhando."},
+  {"nome":"EXEC CALDERARIA/SOLDA","codigos":["MPNS 8024","HMC 9024"],"sit":"EXEC","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Solda/caldeiraria."},
+  {"nome":"EXEC DIAGNOSTICO TECNICO","codigos":["MPNS 8009"],"sit":"EXEC","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Técnico diagnosticando a causa de uma falha."},
+  {"nome":"EXEC SISTEMAS SEGURANCA","codigos":["MPS 7037","MPNS 8037","HMC 9037"],"sit":"EXEC","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Instalação/manutenção de dispositivo de segurança (antifadiga, SEVA etc.)."},
+  {"nome":"EXEC ELETRONICA/AUTOMACAO","codigos":["MPS 7003","MPNS 8003","HMC 9003"],"sit":"EXEC","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Técnico de eletrônica/automação trabalhando."},
+  {"nome":"EXEC ELETRICA","codigos":["MPS 7002","MPNS 8002","HMC 9002"],"sit":"EXEC","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Eletricista trabalhando."},
+  {"nome":"EXEC GARANTIA / ASSIST TECNICA","codigos":["MPS 7023","MPNS 8023","HMC 9023"],"sit":"EXEC","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Serviço em garantia / assistência técnica do fabricante."},
+  {"nome":"EXEC INSP ELETRICA","codigos":["MPS 7004"],"sit":"EXEC","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Inspetor elétrico fazendo inspeção periódica."},
+  {"nome":"EXEC INSP MECANICA","codigos":["MPS 7005"],"sit":"EXEC","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Inspetor mecânico fazendo inspeção periódica."},
+  {"nome":"EXEC LAVADOR","codigos":["MPS 7011","MPNS 8011","HMC 9011"],"sit":"EXEC","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Máquina sendo lavada para manutenção."},
+  {"nome":"EXEC LUBRIFICACAO","codigos":["MPS 7017","MPNS 8017","HMC 9017"],"sit":"EXEC","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Lubrificação/troca ou complemento de óleo."},
+  {"nome":"EXEC MECANICA","codigos":["MPS 7001","MPNS 8001","HMC 9001"],"sit":"EXEC","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Mecânico trabalhando na máquina."},
+  {"nome":"EXEC PREDITIVA","codigos":["MPS 7006","MPNS 8006"],"sit":"EXEC","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Coleta/análise preditiva (vibração, termografia, óleo)."},
+  {"nome":"EXEC TELECOM/REDES COM","codigos":["MPS 7036","MPNS 8036","HMC 9036"],"sit":"EXEC","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Serviço em rádio, antena, comunicação."},
+  {"nome":"EXEC MANUT SISTEMA DE COMBUSTIVEL","codigos":["MPNS 8021","HMC 9021"],"sit":"EXEC","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Serviço no sistema de combustível da máquina."},
+  {"nome":"EXEC TERCEIROS TRABALHANDO","codigos":["MPS 7015","MPNS 8015","HMC 9015"],"sit":"EXEC","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Empresa contratada fazendo o serviço."},
+  {"nome":"AG ABASTECIMENTO","codigos":["MPS 7129"],"sit":"AG","resp":"A_DEFINIR","quem":"Dono de Comboio de diesel","expurgo":"Depende do dono do comboio","ex":"Durante a manutenção, precisa completar diesel."},
+  {"nome":"AG LAVADOR","codigos":["MPS 7111","MPNS 8111","HMC 9111"],"sit":"AG","resp":"A_DEFINIR","quem":"Dono de Lavador","expurgo":"Depende do dono do recurso","ex":"Aguardando lavador."},
+  {"nome":"AG TELECOM/REDES TELECOM","codigos":["MPS 7136","MPNS 8136","HMC 9136"],"sit":"AG","resp":"A_DEFINIR","quem":"Dono de Rádio / telecom","expurgo":"Depende do dono do recurso","ex":"Aguardando técnico de telecom."},
+  {"nome":"AG APROVACAO","codigos":["MPS 7107","MPNS 8107","HMC 9107"],"sit":"AG","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Aguardando aprovação de compra de material/serviço."},
+  {"nome":"AG CALDERARIA/SOLDA","codigos":["MPS 7124","MPNS 8124","HMC 9124"],"sit":"AG","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Aguardando soldador."},
+  {"nome":"AG SISTEMAS SEGURANCA","codigos":["MPS 7137","MPNS 8137","HMC 9137"],"sit":"AG","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Aguardando instalação/manutenção do dispositivo de segurança."},
+  {"nome":"AG ELETRONICA/AUTOMACAO","codigos":["MPS 7103","MPNS 8103","HMC 9103"],"sit":"AG","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Aguardando técnico de eletrônica."},
+  {"nome":"AG ELETRICA","codigos":["MPS 7102","MPNS 8102","HMC 9102"],"sit":"AG","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Aguardando eletricista."},
+  {"nome":"AG GARANTIA / ASSIST TECNICA","codigos":["MPS 7123","MPNS 8123","HMC 9123"],"sit":"AG","resp":"A_DEFINIR","quem":"Fornecedor","expurgo":"A validar com a Vale","ex":"Aguardando garantia/assistência."},
+  {"nome":"AG MECANICA","codigos":["MPS 7101","MPNS 8101","HMC 9101"],"sit":"AG","resp":"MANUTENCAO","quem":"Manutenção","expurgo":"NÃO","ex":"Aguardando mecânico."},
+  {"nome":"AG OFICINA DE COMPONENTES","codigos":["MPS 7128","MPNS 8128","HMC 9128"],"sit":"AG","resp":"MANUTENCAO","quem":"Dono de Almoxarifado / suprimentos (peças)","expurgo":"NÃO","ex":"Aguardando componente em reforma na oficina de componentes."},
+  {"nome":"LIBERADO PELA MANUT","codigos":["HOI 5936"],"sit":"AG","resp":"PRODUCAO","quem":"Supervisor de Produção (operador assumir)","expurgo":"Não se aplica","ex":"Manutenção terminou; máquina aguardando o operador assumir."},
+  {"nome":"FALTA EQUIP DE CARGA","codigos":["HOI 5929"],"sit":"AG","resp":"PRODUCAO","quem":"Supervisor de Produção","expurgo":"Não se aplica","ex":"Caminhão bom parado porque a escavadeira quebrou."},
+  {"nome":"AG EQUIPAMENTO CARGA","codigos":["HOI 5907"],"sit":"AG","resp":"PRODUCAO","quem":"Supervisor de Produção","expurgo":"Não se aplica","ex":"Caminhão aguardando a escavadeira iniciar/retornar."},
+  {"nome":"PARADO POR TKPH","codigos":["HOI 5941"],"sit":"AG","resp":"PRODUCAO","quem":"Supervisor de Produção","expurgo":"Não se aplica","ex":"Pneu quente / TKPH alto, sem dano."},
+  {"nome":"INSPECAO OPERA/LIMPEZA","codigos":["HOI 5934"],"sit":"AG","resp":"PRODUCAO","quem":"Supervisor de Produção","expurgo":"Não se aplica","ex":"Inspeção/limpeza feita pelo operador."},
+  {"nome":"AG ENTREGA P/ MANUT (validar)","codigos":["HOI 5906"],"sit":"AG","resp":"PRODUCAO","quem":"Supervisor de Produção","expurgo":"Não se aplica","ex":"Produção ainda não entregou a máquina para a manutenção."},
+  {"nome":"AG FISCALIZACAO (validar)","codigos":["HOI 5753"],"sit":"AG","resp":"VALE","quem":"Supervisor de Produção (registrar quem da Vale determinou)","expurgo":"Não se aplica","ex":"Parada determinada pela fiscalização da Vale."},
+  {"nome":"EQPTO INTERDITADO (a decidir)","codigos":["HOI 5762"],"sit":"AG","resp":"A_DEFINIR","quem":"Gestão U&M + Segurança","expurgo":"A decidir (D-04)","ex":"Equipamento interditado (ex.: interdição pela Vale)."},
+  {"nome":"AG GEOTECNIA","codigos":["HOI 5949"],"sit":"AG","resp":"A_DEFINIR","quem":"Supervisor de Produção","expurgo":"Não se aplica","ex":"Aguardando liberação da geotecnia."},
+  {"nome":"AG EMBARCACAO EM CARRETA","codigos":["HOI 5983"],"sit":"AG","resp":"A_DEFINIR","quem":"Dono da prancha","expurgo":"Não se aplica","ex":"Aguardando embarque na prancha (TAG da prancha no complemento)."},
+  {"nome":"AG DETON ATRASO MANUT","codigos":["HOI 5937"],"sit":"AG","resp":"A_DEFINIR","quem":"Supervisor de Produção","expurgo":"Não se aplica","ex":"Máquinas esperando o fogo atrasado por quebra no cerco."},
+  {"nome":"OMISSAO DO OPERADOR (temporário)","codigos":["HAO 2912"],"sit":"AG","resp":"PRODUCAO","quem":"Supervisor de Produção","expurgo":"Não se aplica","ex":"Máquina parada sem aviso ao despacho."},
+  {"nome":"TEMPORARIO - DECISAO CONJUNTA","codigos":["9999"],"sit":"AG","resp":"A_DEFINIR","quem":"Supervisores de Produção e Manutenção juntos","expurgo":"Depende da decisão no turno","ex":"Sem consenso: lançar 9999 e ligar para os dois supervisores."}
+];
+
+------------------------------------------------------------------
+CRITÉRIOS DE ACEITE (testar antes de concluir)
+------------------------------------------------------------------
+1. Importar a planilha de efetivo: o cabeçalho é encontrado sozinho, as funções caem nos grupos certos e uma segunda importação da mesma planilha não duplica ninguém.
+2. No perfil Controle, o seletor de técnico mostra só técnicos de campo ativos, com nome + matrícula, com busca e filtro por grupo.
+3. Abrir parada do CR-3114 com hora real 3 horas atrás. Inserir no histórico 2 horas de "HMC 9118 AG PEÇAS" (buscando peça) e, na última hora, aplicar "AG SEGREGAÇÃO" (HMC 9120). O card deve mostrar: "Parado há 3h00 · AG OPERAÇÃO há 1h00 · Produção – Supervisor de Produção do turno", a barra com 2h em azul (Manutenção) e 1h em laranja (Produção), e o resumo "Manutenção 2h00 · Produção 1h00".
+4. Editar o início de um segmento no passado: os vizinhos se ajustam, a soma continua igual ao total parado e a alteração aparece no log.
+5. Um relatório de técnico enviado para uma TAG com parada aberta fica ligado a ela e cria o segmento EXEC MANUT nos horários informados.
+6. Tudo continua sincronizando como antes, e os relatórios antigos continuam abrindo.
+
+Ao terminar, liste os arquivos alterados e explique em poucas linhas como usar as novas telas.

@@ -1,0 +1,47 @@
+{
+  "entities": {
+    "Report": {
+      "title": "Report",
+      "description": "Fim de Turno Maintenance Report",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "usuario": { "type": "string" },
+        "data": { "type": "string" },
+        "turma": { "type": "string" },
+        "frente": { "type": "string" },
+        "equipe": { "type": "object" },
+        "equipamentos": { "type": "array" },
+        "pendencias": { "type": "array" },
+        "observacoes": { "type": "string" },
+        "status": { "type": "string", "enum": ["RASCUNHO", "PENDENTE_SINCRONIZACAO", "SINCRONIZANDO", "ENVIADO", "ERRO_SINCRONIZACAO"] },
+        "dataCriacao": { "type": "string" },
+        "dataSincronizacao": { "type": "string" }
+      },
+      "required": ["id", "usuario", "data", "turma", "frente", "status"]
+    },
+    "Preventiva": {
+      "title": "Preventiva",
+      "description": "Future stop schedule representing preventive maintenance horizonal calendar",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "equipamento": { "type": "string" },
+        "dataParada": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "usuario": { "type": "string" }
+      },
+      "required": ["id", "equipamento", "dataParada", "createdAt", "usuario"]
+    }
+  },
+  "firestore": {
+    "/relatorios/{reportId}": {
+      "schema": "Report",
+      "description": "Reports collection representing finished and synced shift records"
+    },
+    "/preventivas/{id}": {
+      "schema": "Preventiva",
+      "description": "Scheduled preventive stops collection"
+    }
+  }
+}

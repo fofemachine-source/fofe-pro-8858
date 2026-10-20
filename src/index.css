@@ -1,0 +1,163 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500&display=swap');
+@import "tailwindcss";
+
+:root {
+  /* paleta principal */
+  --um-verde-principal: #19502F;
+  --um-verde-secundario: #466C53;
+  --um-verde-claro: #B2BFB4;
+  --um-cinza-escuro: #2C2D2D;
+  --um-cinza-texto: #575756;
+  --um-cinza-claro: #DADADA;
+  --um-fundo: #F5F4F4;
+  --um-branco: #FFFFFF;
+  --um-amarelo-ouro: #E2A937;
+
+  /* gráficos e tabelas: base / claro / escuro */
+  --um-positivo: #19502F;  --um-positivo-claro: #B2BFB4;  --um-positivo-escuro: #0D2B19;
+  --um-qualidade: #466C53; --um-qualidade-claro: #82A68F; --um-qualidade-escuro: #324D3B;
+  --um-alerta: #E2A937;    --um-alerta-claro: #F1D394;    --um-alerta-escuro: #B5872C;
+  --um-critico: #FF7725;   --um-critico-claro: #FFB080;   --um-critico-escuro: #C44A00;
+  --um-negativo: #DC3545;  --um-negativo-claro: #F1959B;  --um-negativo-escuro: #A71D2A;
+  --um-neutro: #DADADA;    --um-neutro-claro: #F5F5F5;    --um-neutro-escuro: #A9A9A9;
+}
+
+@theme {
+  --font-sans: 'Montserrat', sans-serif;
+  --font-mono: 'Montserrat', monospace;
+
+  --color-um-verde-principal: var(--um-verde-principal);
+  --color-um-verde-secundario: var(--um-verde-secundario);
+  --color-um-verde-claro: var(--um-verde-claro);
+  --color-um-cinza-escuro: var(--um-cinza-escuro);
+  --color-um-cinza-texto: var(--um-cinza-texto);
+  --color-um-cinza-claro: var(--um-cinza-claro);
+  --color-um-fundo: var(--um-fundo);
+  --color-um-branco: var(--um-branco);
+  --color-um-amarelo-ouro: var(--um-amarelo-ouro);
+
+  --color-um-positivo: var(--um-positivo);
+  --color-um-positivo-claro: var(--um-positivo-claro);
+  --color-um-positivo-escuro: var(--um-positivo-escuro);
+
+  --color-um-qualidade: var(--um-qualidade);
+  --color-um-qualidade-claro: var(--um-qualidade-claro);
+  --color-um-qualidade-escuro: var(--um-qualidade-escuro);
+
+  --color-um-alerta: var(--um-alerta);
+  --color-um-alerta-claro: var(--um-alerta-claro);
+  --color-um-alerta-escuro: var(--um-alerta-escuro);
+
+  --color-um-critico: var(--um-critico);
+  --color-um-critico-claro: var(--um-critico-claro);
+  --color-um-critico-escuro: var(--um-critico-escuro);
+
+  --color-um-negativo: var(--um-negativo);
+  --color-um-negativo-claro: var(--um-negativo-claro);
+  --color-um-negativo-escuro: var(--um-negativo-escuro);
+
+  --color-um-neutro: var(--um-neutro);
+  --color-um-neutro-claro: var(--um-neutro-claro);
+  --color-um-neutro-escuro: var(--um-neutro-escuro);
+}
+
+body {
+  background-color: var(--um-fundo);
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--um-cinza-texto);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1 {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 300;
+  font-size: 32px;
+  text-transform: uppercase;
+  color: var(--um-verde-principal);
+}
+
+h2 {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 300;
+  font-size: 18px;
+  text-transform: uppercase;
+  color: var(--um-cinza-texto);
+}
+
+.destaque-texto {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 500;
+  color: var(--um-verde-principal);
+}
+
+.caixa-destaque-curto {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 300;
+  font-size: 16px;
+  text-transform: uppercase;
+  background: var(--um-verde-principal);
+  color: var(--um-branco);
+  border-radius: 12px;
+}
+
+.caixa-destaque-longo {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 400;
+  font-size: 16px;
+  background: var(--um-verde-principal);
+  color: var(--um-branco);
+  border-radius: 12px;
+}
+
+/* Fix browser autofill background highlights on inputs */
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus, 
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0px 1000px white inset !important;
+  -webkit-text-fill-color: var(--um-cinza-escuro) !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Animations for toast entries */
+@keyframes slideIn {
+  from {
+    transform: translateY(1rem);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in {
+  animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Custom prints optimizations */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  header, footer, .no-print, button, .lucide-bell {
+    display: none !important;
+  }
+}

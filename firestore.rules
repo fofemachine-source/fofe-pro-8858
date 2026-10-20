@@ -1,0 +1,24 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net: deny general unmapped items
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Rules for our relatorios collection
+    match /relatorios/{reportId} {
+      allow read, write, create, update, delete: if true;
+    }
+
+    // Rules for our preventivas collection
+    match /preventivas/{id} {
+      allow read, write, create, update, delete: if true;
+    }
+
+    // Rules for our tecnicos collection
+    match /tecnicos/{id} {
+      allow read, write, create, update, delete: if true;
+    }
+  }
+}
