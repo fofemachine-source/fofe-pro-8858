@@ -16,7 +16,8 @@ import {
   reabrirParada, 
   calcularHorasPorResponsavel, 
   calcularDuracaoTotalParadaMinutos,
-  getSegmentoAtual
+  getSegmentoAtual,
+  formatarMinutosEmHorasEMinutos
 } from '../lib/paradasEngine';
 import { 
   formatarDuracaoHorasMinutos, 
@@ -391,11 +392,12 @@ export function ParadasView({
                       <div className="flex items-center gap-1.5 truncate">
                         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: respStyle.cor }} />
                         <span className="text-[13px] font-medium tracking-wide truncate" style={{ color: respStyle.texto }}>
-                          {segAtual.codigo} – {segAtual.nome}
+                          {segAtual.codigo} {segAtual.nome} há {formatarMinutosEmHorasEMinutos(durSegAtualMin)}
+                          {parada.emAtendimentoPor ? ` · Em atendimento por ${parada.emAtendimentoPor.tecnicoPrincipal.nome}` : ''}
                         </span>
                       </div>
                       <span className="text-[11px] font-mono font-medium shrink-0" style={{ color: respStyle.texto }}>
-                        há {formatarDuracaoHorasMinutos(durSegAtualMin)}
+                        há {formatarMinutosEmHorasEMinutos(durSegAtualMin)}
                       </span>
                     </div>
 
@@ -405,7 +407,7 @@ export function ParadasView({
                         <span className="flex items-center gap-1.5">
                           <Wrench className="w-3.5 h-3.5 shrink-0" />
                           <span>
-                            Em atendimento por <strong>{parada.emAtendimentoPor.tecnicoPrincipal.nome}</strong> desde {new Date(parada.emAtendimentoPor.inicioAtendimento).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                            Em atendimento por <strong>{parada.emAtendimentoPor.tecnicoPrincipal.nome}</strong> desde {formatarHoraPtBr(parada.emAtendimentoPor.inicioAtendimento)}
                           </span>
                         </span>
                         {parada.emAtendimentoPor.membrosEquipe && parada.emAtendimentoPor.membrosEquipe.length > 0 && (
@@ -1288,6 +1290,32 @@ function ModalDetalheParada({
           </div>
         </div>
 
+        {/* RESUMO RÁPIDO DOS PERÍODOS (Ex: 10:33–11:10 AG ATENDIMENTO (Manutenção, 37 min)) */}
+        <div className="mb-3 p-3 bg-[var(--um-fundo)] border border-[var(--um-cinza-claro)] rounded-xl shrink-0">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--um-cinza-texto)] mb-1.5">
+            Linha do Tempo Contínua (Sem Buracos)
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {parada.segmentos.map((seg, idx) => {
+              const rStyle = getResponsabilidadeStyle(seg.responsavel);
+              const sIniMs = new Date(seg.inicio).getTime();
+              const sFimMs = seg.fim ? new Date(seg.fim).getTime() : Date.now();
+              const durMin = Math.max(0, Math.round((sFimMs - sIniMs) / 60000));
+              const iniHhMm = formatarHoraPtBr(seg.inicio);
+              const fimHhMm = seg.fim ? formatarHoraPtBr(seg.fim) : 'agora';
+              return (
+                <span
+                  key={seg.id || idx}
+                  className="text-[11px] font-mono px-2.5 py-1 rounded-lg border"
+                  style={{ backgroundColor: rStyle.fundo, borderColor: rStyle.borda, color: rStyle.texto }}
+                >
+                  <strong>{iniHhMm}–{fimHhMm}</strong> {seg.nome} ({rStyle.nome}, {durMin} min)
+                </span>
+              );
+            })}
+          </div>
+        </div>
+
         {/* TABELA DO HISTÓRICO DE SEGMENTOS (REGRA 3.4 d) */}
         <div className="flex-1 overflow-y-auto border border-[var(--um-cinza-claro)] rounded-xl">
           <table className="w-full text-left border-collapse text-[11px]">
@@ -1338,7 +1366,7 @@ function ModalDetalheParada({
                       {seg.fim ? formatarDataHoraPtBr(seg.fim) : <strong className="text-[var(--um-verde-principal)]">EM ANDAMENTO</strong>}
                     </td>
                     <td className="py-2.5 px-3 font-mono font-bold text-[11px] text-[var(--um-cinza-escuro)] whitespace-nowrap">
-                      {formatarDuracaoHorasMinutos(durMin)}
+                      {durMin} min ({formatarDuracaoHorasMinutos(durMin)})
                     </td>
                     <td className="py-2.5 px-3 text-[11px] text-[var(--um-cinza-texto)] italic max-w-xs truncate">
                       {seg.complemento || '—'}
@@ -1587,7 +1615,12 @@ function ModalLogAuditoria({
               <div key={item.id || idx} className="py-3 space-y-1 text-[12px]">
                 <div className="flex items-center justify-between text-[11px] text-[var(--um-cinza-texto)]">
                   <span className="font-mono text-[var(--um-verde-principal)] font-bold">{item.acao}</span>
-                  <span>{formatarDataHoraPtBr(item.dataHora)} por <strong className="text-[var(--um-cinza-escuro)]">{item.usuario}</strong></span>
+                  <span>
+                    {formatarDataHoraPtBr(item.dataHora)} por{' '}
+                    <strong className="text-[var(--um-cinza-escuro)]">
+                      {item.usuario}{item.matricula ? ` (Mat: ${item.matricula})` : ''}
+                    </strong>
+                  </span>
                 </div>
                 <p className="text-[var(--um-cinza-escuro)]">{item.detalhes}</p>
                 {item.valorAnterior && (

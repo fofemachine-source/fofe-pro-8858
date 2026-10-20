@@ -3,6 +3,27 @@ import { buscarCodigoVale, getFuncaoResponsavelSugerida } from '../data/codigosV
 import { derivarFrenteDaTag, normalizarTag } from './uEmDataUtils';
 
 /**
+ * Formata minutos em "Xh Ym" ou "Ym" (ex: 0m, 37m, 1h 05m)
+ */
+export function formatarMinutosEmHorasEMinutos(totalMinutos: number): string {
+  const safeMin = Math.max(0, Math.round(totalMinutos || 0));
+  const h = Math.floor(safeMin / 60);
+  const m = safeMin % 60;
+  if (h === 0) return `${m}m`;
+  return `${h}h ${m.toString().padStart(2, '0')}m`;
+}
+
+/**
+ * Formata minutos sempre como "Xh Ym" (ex: "0h 37m", "2h 15m") para o card "Parado há Xh Ym"
+ */
+export function formatarParadoHaXhYm(totalMinutos: number): string {
+  const safeMin = Math.max(0, Math.round(totalMinutos || 0));
+  const h = Math.floor(safeMin / 60);
+  const m = safeMin % 60;
+  return `${h}h ${m}m`;
+}
+
+/**
  * Cria uma nova parada aberta com o segmento inicial padrão (HMC 9130 AG ATENDIMENTO)
  */
 export function criarNovaParada(params: {
@@ -13,12 +34,16 @@ export function criarNovaParada(params: {
   sintomaInicial?: string | null;
   previsaoLiberacao?: string | null;
   usuario: string;
+  matricula?: string;
+  origem?: 'ADMIN' | 'TECNICO';
   codigoInicial?: string; // padrão "HMC 9130"
   complementoInicial?: string;
+  horaToqueIso?: string;
 }): Parada {
   const tagNormalizada = normalizarTag(params.tag);
   const frente = params.frente || derivarFrenteDaTag(tagNormalizada);
   const inicioIso = new Date(params.inicioParada).toISOString();
+  const agoraIso = params.horaToqueIso || new Date().toISOString();
   const id = `parada-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
   const codDef = buscarCodigoVale(params.codigoInicial || 'HMC 9130');
@@ -27,6 +52,7 @@ export function criarNovaParada(params: {
   const situacao = codDef?.sit || 'AG';
   const responsavel = codDef?.resp || 'MANUTENCAO';
   const responsavelFuncao = getFuncaoResponsavelSugerida(codigo, responsavel, codDef?.quem || '');
+  const origemSeg = params.origem || 'ADMIN';
 
   const segmentoInicial: Segmento = {
     id: `seg-${Date.now()}-1`,
@@ -38,16 +64,17 @@ export function criarNovaParada(params: {
     inicio: inicioIso,
     fim: null, // Segmento aberto/atual
     complemento: params.complementoInicial || null,
-    origem: 'ADMIN',
-    editadoPor: params.usuario,
-    editadoEm: new Date().toISOString()
+    origem: origemSeg,
+    editadoPor: `${params.usuario}${params.matricula ? ` (${params.matricula})` : ''}`,
+    editadoEm: agoraIso
   };
 
   const audit: AuditoriaParada = {
     id: `aud-${Date.now()}-1`,
     paradaId: id,
-    dataHora: new Date().toISOString(),
+    dataHora: agoraIso,
     usuario: params.usuario,
+    matricula: params.matricula || undefined,
     acao: 'CRIADA',
     detalhes: `Parada aberta para ${tagNormalizada} com início em ${inicioIso}. Segmento inicial: ${codigo} - ${nome}`
   };
@@ -65,9 +92,9 @@ export function criarNovaParada(params: {
     segmentos: [segmentoInicial],
     relatorioIds: [],
     criadoPor: params.usuario,
-    criadoEm: new Date().toISOString(),
+    criadoEm: agoraIso,
     atualizadoPor: params.usuario,
-    atualizadoEm: new Date().toISOString(),
+    atualizadoEm: agoraIso,
     auditoria: [audit]
   };
 }
@@ -94,7 +121,7 @@ export function aplicarNovoStatus(
   const responsavelFuncao = opcoes?.responsavelFuncao || getFuncaoResponsavelSugerida(codigo, responsavel, codDef?.quem || '');
 
   const segmentos = [...parada.segmentos];
-  const agoraIso = new Date(inicioNovoIso).toISOString();
+  let agoraIso = new Date(inicioNovoIso).toISOString();
 
   // Fechar segmento atual se houver
   const ultimoIdx = segmentos.length - 1;
@@ -102,6 +129,10 @@ export function aplicarNovoStatus(
   if (ultimoIdx >= 0) {
     const ultimo = { ...segmentos[ultimoIdx] };
     valorAnterior = `${ultimo.codigo} ${ultimo.nome}`;
+    const ultimoIniMs = new Date(ultimo.inicio).getTime();
+    if (new Date(agoraIso).getTime() < ultimoIniMs) {
+      agoraIso = new Date(ultimoIniMs + 1000).toISOString();
+    }
     if (!ultimo.fim || new Date(ultimo.fim).getTime() > new Date(agoraIso).getTime()) {
       ultimo.fim = agoraIso;
       segmentos[ultimoIdx] = ultimo;
@@ -282,7 +313,6 @@ export function recalcularELigarSegmentos(
   fimParadaIso?: string | null
 ): Segmento[] {
   if (!segmentos || segmentos.length === 0) {
-    const codDef = buscarCodigoVale('HMC 9130');
     return [{
       id: `seg-padrao-${Date.now()}`,
       codigo: 'HMC 9130',
@@ -297,8 +327,13 @@ export function recalcularELigarSegmentos(
     }];
   }
 
-  // Ordena por início
-  const sorted = [...segmentos].sort((a, b) => new Date(a.inicio).getTime() - new Date(b.inicio).getTime());
+  // Ordena por início (mantendo ordem original em caso de empate exato de timestamp)
+  const indexed = segmentos.map((s, idx) => ({ s, idx }));
+  indexed.sort((a, b) => {
+    const diff = new Date(a.s.inicio).getTime() - new Date(b.s.inicio).getTime();
+    return diff !== 0 ? diff : a.idx - b.idx;
+  });
+  const sorted = indexed.map(item => item.s);
   const resultado: Segmento[] = [];
 
   for (let i = 0; i < sorted.length; i++) {
@@ -326,9 +361,9 @@ export function recalcularELigarSegmentos(
       }
     } else {
       // Segmentos intermediários precisam de fim válido
-      if (!current.fim || new Date(current.fim).getTime() <= new Date(current.inicio).getTime()) {
+      if (!current.fim || new Date(current.fim).getTime() < new Date(current.inicio).getTime()) {
         const next = sorted[i + 1];
-        current.fim = next ? next.inicio : new Date().toISOString();
+        current.fim = next ? next.inicio : current.inicio;
       }
     }
 
@@ -401,6 +436,7 @@ export function encerrarParada(parada: Parada, fimParadaIso: string, usuario: st
     ...parada,
     situacao: 'ENCERRADA',
     fimParada: fimIso,
+    emAtendimentoPor: null,
     segmentos: recalcularELigarSegmentos(segmentos, parada.inicioParada, fimIso),
     atualizadoPor: usuario,
     atualizadoEm: new Date().toISOString(),
@@ -494,6 +530,8 @@ export function getSegmentoAtual(parada: Parada): Segmento {
 /**
  * Processa a finalização de um relatório com atendimentos, vinculando a paradas existentes
  * ou criando novas paradas e inserindo os segmentos de execução de manutenção.
+ * Importante: se a parada já teve o atendimento gerenciado ao vivo pelo técnico (relatorioIds já vinculado
+ * ou segmentos TECNICO existentes), preserva integralmente a linha do tempo real (incluindo pausas/retomadas).
  */
 export function processarAtendimentosParaParadas(
   paradasExistentes: Parada[],
@@ -508,75 +546,48 @@ export function processarAtendimentosParaParadas(
     if (!at.equipamento || !at.equipamento.trim()) continue;
     const tag = normalizarTag(at.equipamento);
 
-    // Constrói horários ISO de início e fim do atendimento
-    const hojeStr = dataReferencia || new Date().toISOString().slice(0, 10);
-    
-    // Início do atendimento
-    let inicioAtendimentoIso: string;
-    if (at.horaInicio && at.horaInicio.includes(':')) {
-      inicioAtendimentoIso = new Date(`${hojeStr}T${at.horaInicio}:00`).toISOString();
-    } else {
-      inicioAtendimentoIso = new Date().toISOString();
-    }
-
-    // Fim do atendimento
-    let fimAtendimentoIso: string;
-    if (at.horaFim && at.horaFim.includes(':')) {
-      fimAtendimentoIso = new Date(`${hojeStr}T${at.horaFim}:00`).toISOString();
-      // Se hora fim for menor que hora início (ex: virou a noite), adiciona 1 dia
-      if (new Date(fimAtendimentoIso).getTime() < new Date(inicioAtendimentoIso).getTime()) {
-        const d = new Date(fimAtendimentoIso);
-        d.setDate(d.getDate() + 1);
-        fimAtendimentoIso = d.toISOString();
-      }
-    } else {
-      fimAtendimentoIso = new Date().toISOString();
-    }
-
-    // Hora real da parada (se informada pelo mecânico)
-    let inicioParadaIso: string;
-    if (at.horaRealParada && at.horaRealParada.includes(':')) {
-      const parsed = new Date(`${hojeStr}T${at.horaRealParada}:00`).toISOString();
-      // Se for maior que início do atendimento, pode ter sido dia anterior
-      if (new Date(parsed).getTime() > new Date(inicioAtendimentoIso).getTime()) {
-        const d = new Date(parsed);
-        d.setDate(d.getDate() - 1);
-        inicioParadaIso = d.toISOString();
-      } else {
-        inicioParadaIso = parsed;
-      }
-    } else {
-      inicioParadaIso = inicioAtendimentoIso;
-    }
-
-    // Código de execução conforme tipo de manutenção
-    let codExec = 'HMC 9110'; // Corretiva por padrão
-    if (at.tipoManutencao === 'PREVENTIVA') {
-      codExec = 'HMP 9210';
-    } else if (at.tipoManutencao === 'PROGRAMADA') {
-      codExec = 'HPR 9310';
-    }
-
     // Procura parada aberta para essa TAG
     const paradaAbertaIdx = listaAtualizada.findIndex(
       p => normalizarTag(p.tag) === tag && p.situacao === 'ABERTA'
     );
 
     if (paradaAbertaIdx >= 0) {
-      // Parada existente aberta: vincula relatório e insere segmento de execução
       let parada = { ...listaAtualizada[paradaAbertaIdx] };
+      const jaVinculadaAoRelatorio = (parada.relatorioIds || []).includes(reportId);
+      const jaTemSegmentoTecnico = parada.segmentos.some(s => s.origem === 'TECNICO');
+
       const relatorios = Array.from(new Set([...(parada.relatorioIds || []), reportId]));
       parada.relatorioIds = relatorios;
       if (at.om && !parada.numeroOS) parada.numeroOS = at.om;
       if (at.sintoma && !parada.sintomaInicial) parada.sintomaInicial = at.sintoma;
       if (at.previsaoLiberacao) parada.previsaoLiberacao = at.previsaoLiberacao;
 
-      // Se a hora real da parada for anterior ao início da parada atual, ajusta início
-      if (new Date(inicioParadaIso).getTime() < new Date(parada.inicioParada).getTime()) {
-        parada.inicioParada = inicioParadaIso;
+      // Se a parada já foi operada pelos botões Iniciar/Pausar/Retomar/Finalizar, NÃO sobrescreve os períodos!
+      if (jaVinculadaAoRelatorio || jaTemSegmentoTecnico) {
+        listaAtualizada[paradaAbertaIdx] = parada;
+        continue;
       }
 
-      // Insere segmento de execução de manutenção
+      // Caso contrário (equipamento avulso adicionado manualmente no formulário):
+      const hojeStr = dataReferencia || new Date().toISOString().slice(0, 10);
+      let inicioAtendimentoIso = at.horaInicio && at.horaInicio.includes(':')
+        ? new Date(`${hojeStr}T${at.horaInicio}:00`).toISOString()
+        : new Date().toISOString();
+
+      let fimAtendimentoIso = at.horaFim && at.horaFim.includes(':')
+        ? new Date(`${hojeStr}T${at.horaFim}:00`).toISOString()
+        : new Date().toISOString();
+
+      if (new Date(fimAtendimentoIso).getTime() <= new Date(inicioAtendimentoIso).getTime()) {
+        const d = new Date(fimAtendimentoIso);
+        d.setDate(d.getDate() + 1);
+        fimAtendimentoIso = d.toISOString();
+      }
+
+      let codExec = 'HMC 9000';
+      if (at.tipoManutencao === 'PREVENTIVA') codExec = 'MPS 7000';
+      else if (at.tipoManutencao === 'PROGRAMADA') codExec = 'MPNS 8000';
+
       parada = inserirSegmentoNoPassado(
         parada,
         {
@@ -584,24 +595,54 @@ export function processarAtendimentosParaParadas(
           inicio: inicioAtendimentoIso,
           fim: fimAtendimentoIso,
           responsavel: 'MANUTENCAO',
-          responsavelFuncao: 'Mecânico / Eletricista Executante',
+          responsavelFuncao: 'Técnico de Manutenção Executante',
           complemento: at.acaoExecutada ? at.acaoExecutada.slice(0, 100) : null
         },
         usuario
       );
 
-      // Se o mecânico liberou o equipamento para operação
       if (at.liberadoOperacao) {
-        parada = aplicarNovoStatus(parada, 'HMC 9140', fimAtendimentoIso, usuario, {
+        parada = aplicarNovoStatus(parada, 'HOI 5936', fimAtendimentoIso, usuario, {
           responsavel: 'PRODUCAO',
-          responsavelFuncao: 'Operação / Despacho',
+          responsavelFuncao: 'Supervisor de Produção (operador assumir)',
           complemento: 'Liberado pelo técnico após atendimento'
         });
       }
 
       listaAtualizada[paradaAbertaIdx] = parada;
     } else {
-      // Cria nova parada com início na hora real ou início do atendimento
+      // Equipamento não tinha parada aberta
+      const hojeStr = dataReferencia || new Date().toISOString().slice(0, 10);
+      let inicioAtendimentoIso = at.horaInicio && at.horaInicio.includes(':')
+        ? new Date(`${hojeStr}T${at.horaInicio}:00`).toISOString()
+        : new Date().toISOString();
+
+      let fimAtendimentoIso = at.horaFim && at.horaFim.includes(':')
+        ? new Date(`${hojeStr}T${at.horaFim}:00`).toISOString()
+        : new Date().toISOString();
+
+      if (new Date(fimAtendimentoIso).getTime() <= new Date(inicioAtendimentoIso).getTime()) {
+        const d = new Date(fimAtendimentoIso);
+        d.setDate(d.getDate() + 1);
+        fimAtendimentoIso = d.toISOString();
+      }
+
+      let inicioParadaIso = inicioAtendimentoIso;
+      if (at.horaRealParada && at.horaRealParada.includes(':')) {
+        const parsed = new Date(`${hojeStr}T${at.horaRealParada}:00`).toISOString();
+        if (new Date(parsed).getTime() > new Date(inicioAtendimentoIso).getTime()) {
+          const d = new Date(parsed);
+          d.setDate(d.getDate() - 1);
+          inicioParadaIso = d.toISOString();
+        } else {
+          inicioParadaIso = parsed;
+        }
+      }
+
+      let codExec = 'HMC 9000';
+      if (at.tipoManutencao === 'PREVENTIVA') codExec = 'MPS 7000';
+      else if (at.tipoManutencao === 'PROGRAMADA') codExec = 'MPNS 8000';
+
       let nova = criarNovaParada({
         tag,
         inicioParada: inicioParadaIso,
@@ -609,13 +650,13 @@ export function processarAtendimentosParaParadas(
         sintomaInicial: at.sintoma,
         previsaoLiberacao: at.previsaoLiberacao,
         usuario,
+        origem: 'TECNICO',
         codigoInicial: 'HMC 9130',
         complementoInicial: 'Aguardando atendimento registrado no relatório'
       });
 
       nova.relatorioIds = [reportId];
 
-      // Insere segmento de execução de manutenção
       nova = inserirSegmentoNoPassado(
         nova,
         {
@@ -623,17 +664,16 @@ export function processarAtendimentosParaParadas(
           inicio: inicioAtendimentoIso,
           fim: fimAtendimentoIso,
           responsavel: 'MANUTENCAO',
-          responsavelFuncao: 'Mecânico / Eletricista Executante',
+          responsavelFuncao: 'Técnico de Manutenção Executante',
           complemento: at.acaoExecutada ? at.acaoExecutada.slice(0, 100) : null
         },
         usuario
       );
 
-      // Se liberado para operação
       if (at.liberadoOperacao) {
-        nova = aplicarNovoStatus(nova, 'HMC 9140', fimAtendimentoIso, usuario, {
+        nova = aplicarNovoStatus(nova, 'HOI 5936', fimAtendimentoIso, usuario, {
           responsavel: 'PRODUCAO',
-          responsavelFuncao: 'Operação / Despacho',
+          responsavelFuncao: 'Supervisor de Produção (operador assumir)',
           complemento: 'Liberado pelo técnico após atendimento'
         });
       }
@@ -665,7 +705,7 @@ export const MOTIVOS_PAUSA_RAPIDA: MotivoPausa[] = [
 
 /**
  * Inicia o atendimento de uma parada aberta pelo técnico.
- * Fecha o segmento atual e abre o segmento EXEC MANUT (HMC 9000, MPS 7000 ou MPNS 8000).
+ * Fecha o segmento atual na hora do toque e abre o segmento EXEC MANUT (HMC 9000, MPS 7000 ou MPNS 8000).
  * Se outro técnico já iniciou, o novo entra como membro da equipe sem duplicar parada.
  */
 export function iniciarAtendimentoParada(params: {
@@ -679,7 +719,7 @@ export function iniciarAtendimentoParada(params: {
   horaToqueIso?: string;
   reportId?: string;
 }): Parada {
-  const agoraIso = params.horaToqueIso || new Date().toISOString();
+  let agoraIso = params.horaToqueIso || new Date().toISOString();
   const parada = { ...params.parada };
 
   // Se outro técnico já está atendendo esta mesma parada, entra como membro da equipe sem duplicar
@@ -693,7 +733,8 @@ export function iniciarAtendimentoParada(params: {
         nome: params.tecnicoNome,
         matricula: params.tecnicoMatricula,
         funcao: params.tecnicoFuncao,
-        reportId: params.reportId
+        reportId: params.reportId,
+        horaToqueIso: agoraIso
       });
     }
     return parada;
@@ -717,10 +758,12 @@ export function iniciarAtendimentoParada(params: {
   if (ultimoIdx >= 0) {
     const ultimo = { ...segmentos[ultimoIdx] };
     valorAnterior = `${ultimo.codigo} ${ultimo.nome}`;
-    if (!ultimo.fim || new Date(ultimo.fim).getTime() > new Date(agoraIso).getTime()) {
-      ultimo.fim = agoraIso;
-      segmentos[ultimoIdx] = ultimo;
+    const ultimoIniMs = new Date(ultimo.inicio).getTime();
+    if (new Date(agoraIso).getTime() < ultimoIniMs) {
+      agoraIso = new Date(ultimoIniMs + 1000).toISOString();
     }
+    ultimo.fim = agoraIso;
+    segmentos[ultimoIdx] = ultimo;
   }
 
   // Novo segmento EXEC MANUT
@@ -733,14 +776,14 @@ export function iniciarAtendimentoParada(params: {
     responsavelFuncao: 'Técnico de Manutenção Executante',
     inicio: agoraIso,
     fim: null,
-    complemento: `Início do atendimento (${params.tipoManutencao})`,
+    complemento: `Atendimento em execução por ${params.tecnicoNome} (${params.tipoManutencao})`,
     origem: 'TECNICO',
     editadoPor: `${params.tecnicoNome}${params.tecnicoMatricula ? ` (${params.tecnicoMatricula})` : ''}`,
     editadoEm: agoraIso
   };
   segmentos.push(novoSegmento);
 
-  // Auditoria
+  // Auditoria com nome e matrícula do técnico
   const audit: AuditoriaParada = {
     id: `aud-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
     paradaId: parada.id,
@@ -748,7 +791,7 @@ export function iniciarAtendimentoParada(params: {
     usuario: params.tecnicoNome,
     matricula: params.tecnicoMatricula || undefined,
     acao: 'INICIAR_ATENDIMENTO',
-    detalhes: `Atendimento iniciado por ${params.tecnicoNome}${params.tecnicoMatricula ? ` (${params.tecnicoMatricula})` : ''} - Tipo: ${params.tipoManutencao}. Segmento aberto: ${codigoExec} ${nomeExec}.`,
+    detalhes: `Atendimento iniciado por ${params.tecnicoNome}${params.tecnicoMatricula ? ` (Mat: ${params.tecnicoMatricula})` : ''} - Tipo: ${params.tipoManutencao}. Segmento aberto: ${codigoExec} ${nomeExec}.`,
     valorAnterior,
     valorNovo: `${codigoExec} - ${nomeExec}`
   };
@@ -790,8 +833,9 @@ export function adicionarMembroEquipeParada(params: {
   funcao?: string;
   papel?: string;
   reportId?: string;
+  horaToqueIso?: string;
 }): Parada {
-  const agoraIso = new Date().toISOString();
+  const agoraIso = params.horaToqueIso || new Date().toISOString();
   const parada = { ...params.parada };
   if (!parada.emAtendimentoPor) return parada;
 
@@ -813,7 +857,7 @@ export function adicionarMembroEquipeParada(params: {
     usuario: params.nome,
     matricula: params.matricula || undefined,
     acao: 'INICIAR_ATENDIMENTO',
-    detalhes: `Técnico ${params.nome}${params.matricula ? ` (${params.matricula})` : ''} entrou na equipe de atendimento da parada.`
+    detalhes: `Técnico ${params.nome}${params.matricula ? ` (Mat: ${params.matricula})` : ''} entrou como membro da equipe da parada em andamento.`
   };
 
   const relatorioIds = params.reportId 
@@ -845,7 +889,7 @@ export function pausarAtendimentoParada(params: {
   usuarioMatricula?: string;
   horaToqueIso?: string;
 }): Parada {
-  const agoraIso = params.horaToqueIso || new Date().toISOString();
+  let agoraIso = params.horaToqueIso || new Date().toISOString();
   const parada = { ...params.parada };
   const codDef = buscarCodigoVale(params.codigoMotivo);
   const codigo = codDef?.codigo || params.codigoMotivo;
@@ -861,10 +905,12 @@ export function pausarAtendimentoParada(params: {
   if (ultimoIdx >= 0) {
     const ultimo = { ...segmentos[ultimoIdx] };
     valorAnterior = `${ultimo.codigo} ${ultimo.nome}`;
-    if (!ultimo.fim || new Date(ultimo.fim).getTime() > new Date(agoraIso).getTime()) {
-      ultimo.fim = agoraIso;
-      segmentos[ultimoIdx] = ultimo;
+    const ultimoIniMs = new Date(ultimo.inicio).getTime();
+    if (new Date(agoraIso).getTime() < ultimoIniMs) {
+      agoraIso = new Date(ultimoIniMs + 1000).toISOString();
     }
+    ultimo.fim = agoraIso;
+    segmentos[ultimoIdx] = ultimo;
   }
 
   // Abrir segmento AG selecionado
@@ -891,7 +937,7 @@ export function pausarAtendimentoParada(params: {
     usuario: params.usuarioNome,
     matricula: params.usuarioMatricula || undefined,
     acao: 'PAUSAR',
-    detalhes: `Atendimento pausado por ${params.usuarioNome}: ${codigo} - ${nome} (${responsavel}). ${params.complemento ? `Complemento: ${params.complemento}` : ''}`,
+    detalhes: `Atendimento pausado por ${params.usuarioNome}${params.usuarioMatricula ? ` (Mat: ${params.usuarioMatricula})` : ''}: ${codigo} - ${nome} (${responsavel}). ${params.complemento ? `Complemento: ${params.complemento}` : ''}`,
     valorAnterior,
     valorNovo: `${codigo} - ${nome}`
   };
@@ -920,7 +966,7 @@ export function retomarAtendimentoParada(params: {
   usuarioMatricula?: string;
   horaToqueIso?: string;
 }): Parada {
-  const agoraIso = params.horaToqueIso || new Date().toISOString();
+  let agoraIso = params.horaToqueIso || new Date().toISOString();
   const parada = { ...params.parada };
   const codigoExec = parada.emAtendimentoPor?.codigoExec || 'HMC 9000';
   const codDef = buscarCodigoVale(codigoExec);
@@ -933,10 +979,12 @@ export function retomarAtendimentoParada(params: {
   if (ultimoIdx >= 0) {
     const ultimo = { ...segmentos[ultimoIdx] };
     valorAnterior = `${ultimo.codigo} ${ultimo.nome}`;
-    if (!ultimo.fim || new Date(ultimo.fim).getTime() > new Date(agoraIso).getTime()) {
-      ultimo.fim = agoraIso;
-      segmentos[ultimoIdx] = ultimo;
+    const ultimoIniMs = new Date(ultimo.inicio).getTime();
+    if (new Date(agoraIso).getTime() < ultimoIniMs) {
+      agoraIso = new Date(ultimoIniMs + 1000).toISOString();
     }
+    ultimo.fim = agoraIso;
+    segmentos[ultimoIdx] = ultimo;
   }
 
   // Re-abrir segmento EXEC MANUT
@@ -963,7 +1011,7 @@ export function retomarAtendimentoParada(params: {
     usuario: params.usuarioNome,
     matricula: params.usuarioMatricula || undefined,
     acao: 'RETOMAR',
-    detalhes: `Atendimento retomado por ${params.usuarioNome}. Segmento reaberto: ${codigoExec} ${nomeExec}.`,
+    detalhes: `Atendimento retomado por ${params.usuarioNome}${params.usuarioMatricula ? ` (Mat: ${params.usuarioMatricula})` : ''}. Segmento reaberto: ${codigoExec} ${nomeExec}.`,
     valorAnterior,
     valorNovo: `${codigoExec} - ${nomeExec}`
   };
@@ -999,7 +1047,7 @@ export function finalizarAtendimentoParada(params: {
   usuarioMatricula?: string;
   reportId?: string;
 }): Parada {
-  const fimIso = params.horaFimIso || new Date().toISOString();
+  let fimIso = params.horaFimIso || new Date().toISOString();
   const parada = { ...params.parada };
 
   // Fechar segmento atual na hora fim
@@ -1009,10 +1057,12 @@ export function finalizarAtendimentoParada(params: {
   if (ultimoIdx >= 0) {
     const ultimo = { ...segmentos[ultimoIdx] };
     valorAnterior = `${ultimo.codigo} ${ultimo.nome}`;
-    if (!ultimo.fim || new Date(ultimo.fim).getTime() > new Date(fimIso).getTime()) {
-      ultimo.fim = fimIso;
-      segmentos[ultimoIdx] = ultimo;
+    const ultimoIniMs = new Date(ultimo.inicio).getTime();
+    if (new Date(fimIso).getTime() < ultimoIniMs) {
+      fimIso = new Date(ultimoIniMs + 1000).toISOString();
     }
+    ultimo.fim = fimIso;
+    segmentos[ultimoIdx] = ultimo;
   }
 
   // Novo status resultante
@@ -1051,7 +1101,7 @@ export function finalizarAtendimentoParada(params: {
     usuario: params.usuarioNome,
     matricula: params.usuarioMatricula || undefined,
     acao: 'FINALIZAR',
-    detalhes: `Atendimento finalizado por ${params.usuarioNome}. Status resultante: ${codigo} - ${nome} (${responsavel}). Parada permanece ABERTA aguardando encerramento operacional.`,
+    detalhes: `Atendimento finalizado por ${params.usuarioNome}${params.usuarioMatricula ? ` (Mat: ${params.usuarioMatricula})` : ''}. Status resultante: ${codigo} - ${nome} (${responsavel}). Parada permanece ABERTA aguardando encerramento operacional.`,
     valorAnterior,
     valorNovo: `${codigo} - ${nome}`
   };
@@ -1070,5 +1120,3 @@ export function finalizarAtendimentoParada(params: {
     auditoria: [...(parada.auditoria || []), audit]
   };
 }
-
-

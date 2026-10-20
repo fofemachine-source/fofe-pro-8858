@@ -335,14 +335,54 @@ export default function App() {
     };
   }, [isOffline]);
 
-  // 2.3 Listen to paradas collection (Vale x U&M)
+  // 2.3 Listen to paradas collection (Vale x U&M) & sync offline Parada actions
   useEffect(() => {
     if (isOffline) return;
+
+    // Sincroniza ações de paradas guardadas offline mantendo os horários originais do toque
+    async function syncPendingOfflineParadas() {
+      try {
+        const rawPending = localStorage.getItem('rft_pending_paradas_sync');
+        if (!rawPending) return;
+        const pendingIds: string[] = JSON.parse(rawPending);
+        if (!Array.isArray(pendingIds) || pendingIds.length === 0) return;
+
+        const savedLocal = localStorage.getItem('rft_paradas');
+        const localList: Parada[] = savedLocal ? JSON.parse(savedLocal) : paradas;
+        const remainingIds: string[] = [];
+
+        for (const pid of pendingIds) {
+          const paradaLocal = localList.find(p => p.id === pid);
+          if (paradaLocal) {
+            try {
+              await setDoc(doc(db, 'paradas', paradaLocal.id), paradaLocal);
+            } catch (err) {
+              console.warn('Falha ao sincronizar parada offline, tentará novamente:', err);
+              remainingIds.push(pid);
+            }
+          }
+        }
+
+        localStorage.setItem('rft_pending_paradas_sync', JSON.stringify(remainingIds));
+      } catch (e) {
+        console.warn('Erro ao processar fila de paradas offline:', e);
+      }
+    }
+
+    syncPendingOfflineParadas();
 
     const pq = query(collection(db, 'paradas'));
     
     const unsubscribe = onSnapshot(pq, (snapshot) => {
       const deletedParadas = getDeletedParadaIds();
+      let pendingSet = new Set<string>();
+      try {
+        const rawPending = localStorage.getItem('rft_pending_paradas_sync');
+        if (rawPending) {
+          pendingSet = new Set(JSON.parse(rawPending));
+        }
+      } catch (e) {}
+
       const serverParadas: Parada[] = [];
       snapshot.forEach((docSnap) => {
         try {
@@ -353,11 +393,36 @@ export default function App() {
           console.error('Mapeamento falhou para parada:', e);
         }
       });
-      if (serverParadas.length > 0) {
-        setParadas(serverParadas);
-        dbSaveParadasBulk(serverParadas).catch(() => {});
-        try { localStorage.setItem('rft_paradas', JSON.stringify(serverParadas)); } catch (e) {}
-      }
+
+      setParadas((prevLocal) => {
+        const mergedMap = new Map<string, Parada>();
+        serverParadas.forEach(sp => mergedMap.set(sp.id, sp));
+
+        // Preserva paradas que tiveram ações offline pendentes ou mais recentes
+        prevLocal.forEach(lp => {
+          if (deletedParadas.has(lp.id)) return;
+          const sp = mergedMap.get(lp.id);
+          if (!sp) {
+            if (pendingSet.has(lp.id)) {
+              mergedMap.set(lp.id, lp);
+            }
+          } else if (pendingSet.has(lp.id)) {
+            const localTime = new Date(lp.atualizadoEm || 0).getTime();
+            const serverTime = new Date(sp.atualizadoEm || 0).getTime();
+            if (localTime >= serverTime) {
+              mergedMap.set(lp.id, lp);
+            }
+          }
+        });
+
+        const finalParadas = Array.from(mergedMap.values());
+        if (finalParadas.length > 0 || serverParadas.length === 0) {
+          dbSaveParadasBulk(finalParadas).catch(() => {});
+          try { localStorage.setItem('rft_paradas', JSON.stringify(finalParadas)); } catch (e) {}
+          return finalParadas;
+        }
+        return prevLocal;
+      });
     }, (error) => {
       console.warn('Erro ao escutar paradas Firestore:', error);
     });
@@ -378,14 +443,34 @@ export default function App() {
       return updated;
     });
 
+    const markParadaPendingOffline = (id: string) => {
+      try {
+        const raw = localStorage.getItem('rft_pending_paradas_sync');
+        const list: string[] = raw ? JSON.parse(raw) : [];
+        if (!list.includes(id)) {
+          list.push(id);
+          localStorage.setItem('rft_pending_paradas_sync', JSON.stringify(list));
+        }
+      } catch (e) {}
+    };
+
     if (!isOffline) {
       try {
         await setDoc(doc(db, 'paradas', parada.id), parada);
       } catch (err) {
-        console.error('Erro ao salvar parada no Firestore:', err);
+        console.error('Erro ao salvar parada no Firestore, guardando para sync offline:', err);
+        markParadaPendingOffline(parada.id);
       }
+    } else {
+      markParadaPendingOffline(parada.id);
     }
-    addToast('Parada Atualizada', `Status do equipamento ${parada.tag} salvo com sucesso!`, 'success');
+    addToast(
+      isOffline ? 'Parada Salva Offline' : 'Parada Atualizada',
+      isOffline
+        ? `Ação no equipamento ${parada.tag} gravada com o horário do toque para sincronizar quando voltar a rede.`
+        : `Status do equipamento ${parada.tag} salvo com sucesso!`,
+      isOffline ? 'warning' : 'success'
+    );
   };
 
   const handleDeleteParada = async (id: string) => {
