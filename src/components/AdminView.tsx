@@ -75,10 +75,11 @@ export function AdminView({
   const [showConfirmClearAllDatabase, setShowConfirmClearAllDatabase] = useState(false);
   const [confirmZerarPalavra, setConfirmZerarPalavra] = useState('');
 
-  // Planilha de Efetivo (Melhoria 1.1)
+  // Planilha de Efetivo (Melhoria 1.1 / Regra A2)
   const [importPreview, setImportPreview] = useState<ResumoImportacao | null>(null);
   const [isProcessingImport, setIsProcessingImport] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [importSuccessMsg, setImportSuccessMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // PREV modal and inline editing states
@@ -1019,7 +1020,129 @@ export function AdminView({
                   <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
                   {importError}
                 </span>
-                <button onClick={() => setImportError(null)} className="font-bold">✕</button>
+                <button onClick={() => setImportError(null)} className="font-bold cursor-pointer">✕</button>
+              </div>
+            )}
+
+            {importSuccessMsg && (
+              <div className="p-4 bg-emerald-50 border-b border-emerald-200 text-emerald-900 text-[13px] font-bold flex items-center justify-between animate-in fade-in duration-200">
+                <span className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-emerald-700 shrink-0" />
+                  {importSuccessMsg} — Lista sincronizada para todos os dispositivos (Admin e Controle).
+                </span>
+                <button onClick={() => setImportSuccessMsg(null)} className="font-bold cursor-pointer text-emerald-700">✕</button>
+              </div>
+            )}
+
+            {/* PRÉ-VISUALIZAÇÃO DA IMPORTAÇÃO DE EFETIVO (Regra A2) */}
+            {importPreview && (
+              <div className="p-5 bg-emerald-50/70 border-b-2 border-[var(--um-verde-principal)] space-y-4 animate-in fade-in duration-200">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-[14px] font-black text-[var(--um-verde-principal)] uppercase tracking-wider flex items-center gap-2">
+                      <FileSpreadsheet className="w-4 h-4" />
+                      Pré-visualização da Importação da Planilha de Efetivo
+                    </h4>
+                    <p className="text-[12px] text-[var(--um-cinza-texto)] mt-0.5">
+                      Confira os dados lidos abaixo e clique em <strong>Confirmar importação</strong> para gravar no banco compartilhado.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setImportPreview(null)}
+                      className="px-3.5 py-2 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 text-[11px] font-bold uppercase tracking-wider rounded-xl cursor-pointer transition"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const lista = importPreview.tecnicosImportados;
+                        if (onAddTecnicosBulk) {
+                          onAddTecnicosBulk(lista);
+                        } else {
+                          lista.forEach((t) => onAddTecnico(t));
+                        }
+                        setImportSuccessMsg(`${lista.length} técnicos importados`);
+                        setImportPreview(null);
+                      }}
+                      className="px-4 py-2.5 bg-[var(--um-verde-principal)] hover:bg-[var(--um-verde-secundario)] text-white text-[12px] font-black uppercase tracking-wider rounded-xl cursor-pointer shadow-md flex items-center gap-1.5 transition"
+                    >
+                      <Check className="w-4 h-4" />
+                      Confirmar importação ({importPreview.tecnicosImportados.length})
+                    </button>
+                  </div>
+                </div>
+
+                {/* Cards de resumo: Total, Novos, Atualizados, Ignorados */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-white rounded-xl p-3 border border-emerald-200 shadow-2xs">
+                    <span className="text-[10px] font-bold uppercase text-gray-500 block">Total Válido</span>
+                    <span className="text-xl font-black text-gray-900">{importPreview.totalLido}</span>
+                  </div>
+                  <div className="bg-white rounded-xl p-3 border border-emerald-200 shadow-2xs">
+                    <span className="text-[10px] font-bold uppercase text-emerald-700 block">Novos</span>
+                    <span className="text-xl font-black text-emerald-700">{importPreview.novos}</span>
+                  </div>
+                  <div className="bg-white rounded-xl p-3 border border-blue-200 shadow-2xs">
+                    <span className="text-[10px] font-bold uppercase text-blue-700 block">Atualizados (UPSERT)</span>
+                    <span className="text-xl font-black text-blue-700">{importPreview.atualizados}</span>
+                  </div>
+                  <div className="bg-white rounded-xl p-3 border border-amber-200 shadow-2xs">
+                    <span className="text-[10px] font-bold uppercase text-amber-700 block">Ignorados</span>
+                    <span className="text-xl font-black text-amber-700">{importPreview.ignorados}</span>
+                  </div>
+                </div>
+
+                {/* Contagem por grupo */}
+                <div className="bg-white rounded-xl p-3.5 border border-gray-200">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-2">
+                    Contagem por Grupo de Função
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {(Object.entries(importPreview.porGrupo) as [GrupoTecnico, number][])
+                      .filter(([, qtd]) => qtd > 0)
+                      .map(([grupo, qtd]) => (
+                        <span
+                          key={grupo}
+                          className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-gray-100 text-gray-800 border border-gray-200"
+                        >
+                          {grupo}: <strong className="text-[var(--um-verde-principal)]">{qtd}</strong>
+                        </span>
+                      ))}
+                  </div>
+                </div>
+
+                {/* Amostra dos primeiros registros */}
+                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden max-h-56 overflow-y-auto">
+                  <table className="w-full text-left border-collapse text-[11px]">
+                    <thead className="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-500 sticky top-0">
+                      <tr>
+                        <th className="py-2 px-3">Matrícula (CHAPA)</th>
+                        <th className="py-2 px-3">Nome</th>
+                        <th className="py-2 px-3">Função Original</th>
+                        <th className="py-2 px-3">Grupo</th>
+                        <th className="py-2 px-3">Seção</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {importPreview.tecnicosImportados.slice(0, 50).map((t) => (
+                        <tr key={t.id || t.matricula} className="hover:bg-gray-50">
+                          <td className="py-1.5 px-3 font-mono font-bold text-gray-800">{t.matricula}</td>
+                          <td className="py-1.5 px-3 font-semibold text-gray-900">{t.nome}</td>
+                          <td className="py-1.5 px-3 text-gray-600">{t.funcao}</td>
+                          <td className="py-1.5 px-3">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                              {t.grupo}
+                            </span>
+                          </td>
+                          <td className="py-1.5 px-3 text-gray-500 truncate max-w-[180px]">{t.secao || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 

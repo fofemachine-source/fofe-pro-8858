@@ -1,21 +1,57 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  Plus, Trash2, Camera, Save, Send, AlertTriangle, 
-  CheckCircle2, FileText, Calendar, Info, Clock, User as UserIcon, BookOpen, FileSpreadsheet, X,
-  ClipboardList, PlusCircle, Play, Pause, RotateCcw, Wrench, Search, Users, Check, AlertCircle, ArrowRight, History
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import {
+  Plus,
+  Trash2,
+  Camera,
+  Send,
+  AlertTriangle,
+  CheckCircle2,
+  Calendar,
+  Clock,
+  User as UserIcon,
+  FileSpreadsheet,
+  X,
+  ClipboardList,
+  Play,
+  Pause,
+  RotateCcw,
+  Wrench,
+  Search,
+  Users,
+  AlertCircle,
+  ArrowRight,
+  Lock,
+  Unlock,
+  ArrowLeft,
+  ChevronDown,
+  ChevronUp,
+  LayoutDashboard,
+  Save
 } from 'lucide-react';
-import { Report, Atendimento, Pendencia, User, Preventiva, Tecnico, Parada, FalhaCatalogada } from '../types';
+import {
+  Report,
+  Atendimento,
+  Pendencia,
+  User,
+  Preventiva,
+  Tecnico,
+  Parada,
+  FalhaCatalogada
+} from '../types';
 import { ReportCardAccordion } from './ReportCardAccordion';
-import { TechnicianScrollSelector } from './TechnicianScrollSelector';
+import { SeletorTecnico } from './SeletorTecnico';
 import { SeletorCatalogo } from './SeletorCatalogo';
-import { formatarFalhaCard, perfilDaTag, precisaEscolherPerfilCR } from '../data/catalogoFalhas';
-import { 
-  getSegmentoAtual, 
-  calcularDuracaoTotalParadaMinutos, 
-  formatarMinutosEmHorasEMinutos,
+import { ResumoOperacionalControle } from './ResumoOperacionalControle';
+import {
+  formatarFalhaCard,
+  perfilDaTag,
+  precisaEscolherPerfilCR
+} from '../data/catalogoFalhas';
+import {
+  getSegmentoAtual,
+  calcularDuracaoTotalParadaMinutos,
   formatarParadoHaXhYm,
   iniciarAtendimentoParada,
-  adicionarMembroEquipeParada,
   pausarAtendimentoParada,
   retomarAtendimentoParada,
   finalizarAtendimentoParada,
@@ -23,8 +59,14 @@ import {
   MOTIVOS_PAUSA_RAPIDA
 } from '../lib/paradasEngine';
 import { getResponsabilidadeStyle } from '../theme/uEmTheme';
-import { derivarFrenteDaTag, normalizarTag, formatarHoraPtBr, removerAcentos } from '../lib/uEmDataUtils';
-import { CODIGOS_VALE_FLAT, buscarCodigoVale } from '../data/codigosVale';
+import {
+  derivarFrenteDaTag,
+  normalizarTag,
+  formatarHoraPtBr,
+  formatarDataPtBr,
+  removerAcentos
+} from '../lib/uEmDataUtils';
+import { CODIGOS_VALE_FLAT } from '../data/codigosVale';
 
 interface MechanicViewProps {
   user: User;
@@ -40,18 +82,50 @@ interface MechanicViewProps {
   onSaveParada?: (p: Parada) => void;
 }
 
+const ULTIMA_TURMA_KEY = 'rft_ultima_turma';
+const ULTIMO_TECNICO_KEY = 'rft_ultimo_tecnico';
+const MEUS_ATENDIMENTOS_IDS_KEY = 'rft_meus_atendimentos_ids';
+
+/**
+ * Calcula o turno/horário automaticamente a partir da hora de início e da turma (Regra C2.a)
+ * 06:00–18:00 = dia; 18:00–06:00 = noite; 07:00–17:00 se turma ADM.
+ */
+function calcularTurnoPelaHoraETurma(horaHhMm: string, turma: string): string {
+  if (turma === 'ADM') {
+    return '07:00 às 17:00 (ADM)';
+  }
+  if (horaHhMm && horaHhMm.includes(':')) {
+    const [hh] = horaHhMm.split(':').map(Number);
+    if (!isNaN(hh)) {
+      if (hh >= 6 && hh < 18) {
+        return '06:00 às 18:00';
+      }
+      return '18:00 às 06:00';
+    }
+  }
+  const horaAtual = new Date().getHours();
+  return horaAtual >= 6 && horaAtual < 18 ? '06:00 às 18:00' : '18:00 às 06:00';
+}
+
 /**
  * Converte um horário HH:mm em ISO preservando a data de referência e o instante exato do toque quando aplicável.
  */
-function resolverHorarioIso(horaHhMm: string, horaToqueIso: string, referenciaMinimaIso?: string): string {
+function resolverHorarioIso(
+  horaHhMm: string,
+  horaToqueIso: string,
+  referenciaMinimaIso?: string
+): string {
   const toqueDate = new Date(horaToqueIso);
-  const toqueHhMm = toqueDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const toqueHhMm = toqueDate.toLocaleTimeString('pt-BR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
 
   if (!horaHhMm || !horaHhMm.includes(':')) {
     return horaToqueIso;
   }
 
-  // Se o técnico manteve o horário padrão do toque, usa o timestamp do toque
   if (horaHhMm === toqueHhMm) {
     if (referenciaMinimaIso) {
       const minMs = new Date(referenciaMinimaIso).getTime();
@@ -63,7 +137,6 @@ function resolverHorarioIso(horaHhMm: string, horaToqueIso: string, referenciaMi
     }
   }
 
-  // Caso o técnico tenha informado um horário específico (ex: 11:10, 11:40, 12:10, 12:40)
   const baseDate = referenciaMinimaIso ? new Date(referenciaMinimaIso) : toqueDate;
   const [hh, mm] = horaHhMm.split(':').map(Number);
   const candidate = new Date(baseDate);
@@ -71,8 +144,7 @@ function resolverHorarioIso(horaHhMm: string, horaToqueIso: string, referenciaMi
 
   if (referenciaMinimaIso) {
     const minMs = new Date(referenciaMinimaIso).getTime();
-    // Se ficou antes do início de referência por virada de turno (meia-noite), avança 1 dia
-    if (candidate.getTime() < minMs && (minMs - candidate.getTime()) > 6 * 3600 * 1000) {
+    if (candidate.getTime() < minMs && minMs - candidate.getTime() > 6 * 3600 * 1000) {
       candidate.setDate(candidate.getDate() + 1);
     }
   }
@@ -80,123 +152,150 @@ function resolverHorarioIso(horaHhMm: string, horaToqueIso: string, referenciaMi
   return candidate.toISOString();
 }
 
-export function MechanicView({ 
-  user, 
-  reports, 
-  onSaveReport, 
-  isOffline, 
+function getMeusAtendimentosIds(): string[] {
+  try {
+    const raw = localStorage.getItem(MEUS_ATENDIMENTOS_IDS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return [];
+}
+
+function addMeuAtendimentoId(id: string) {
+  try {
+    const atual = new Set(getMeusAtendimentosIds());
+    atual.add(id);
+    localStorage.setItem(MEUS_ATENDIMENTOS_IDS_KEY, JSON.stringify(Array.from(atual)));
+  } catch {}
+}
+
+function removeMeuAtendimentoId(id: string) {
+  try {
+    const atual = new Set(getMeusAtendimentosIds());
+    atual.delete(id);
+    localStorage.setItem(MEUS_ATENDIMENTOS_IDS_KEY, JSON.stringify(Array.from(atual)));
+  } catch {}
+}
+
+export function MechanicView({
+  user,
+  reports,
+  onSaveReport,
+  isOffline,
   onDeleteReport,
-  preventivas,
-  onAddPreventiva,
-  onDeletePreventiva,
   tecnicos = [],
   paradas = [],
   onSaveParada
 }: MechanicViewProps) {
-  // Current active report being edited
-  const [activeReportId, setActiveReportId] = useState<string | null>(null);
-  
-  // Tab control: 'form' to write/edit, 'history' to view previous reports
-  const [activeTab, setActiveTab] = useState<'form' | 'history'>('form');
+  // Navegação principal do Controle:
+  // 'painel' (Tela Inicial B1 + B2 + B3), 'meus_relatorios' (B4), 'atendimento' (Tela C2)
+  const [activeTab, setActiveTab] = useState<'painel' | 'meus_relatorios' | 'atendimento'>('painel');
 
-  // Lightbox view for added photos in form
+  // ID do relatório rascunho atual e da parada sendo atendida na tela C2
+  const [activeReportId, setActiveReportId] = useState<string | null>(null);
+  const [activeParadaId, setActiveParadaId] = useState<string | null>(null);
+
+  // Lightbox de fotos
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
 
-  // Preventivas schedule modal controls
-  const [showPreventivasModal, setShowPreventivasModal] = useState(false);
-  const [newEquip, setNewEquip] = useState('');
-  const [newDate, setNewDate] = useState('');
-
-  const handleRegisterPreventiva = () => {
-    if (!newEquip.trim() || !newDate) return;
-    
-    const dateParts = newDate.split('-');
-    let formattedDate = newDate;
-    if (dateParts.length === 3) {
-      formattedDate = `${dateParts[2]}/${dateParts[1]}`;
-    }
-
-    onAddPreventiva({
-      equipamento: newEquip.trim().toUpperCase(),
-      dataParada: formattedDate,
-      usuario: user.username
-    });
-
-    setNewEquip('');
-    setNewDate('');
-  };
-
-  // Form State
+  // Dados do Atendimento / Cabeçalho (C1 & C2)
   const [dateStart, setDateStart] = useState(() => new Date().toISOString().slice(0, 10));
   const [dateEnd, setDateEnd] = useState(() => new Date().toISOString().slice(0, 10));
-  const [team, setTeam] = useState('A');
-  const [shift, setShift] = useState('18:00 às 06:00');
+  const [team, setTeam] = useState(() => {
+    try {
+      return localStorage.getItem(ULTIMA_TURMA_KEY) || 'A';
+    } catch {
+      return 'A';
+    }
+  });
+  const [shift, setShift] = useState(() => calcularTurnoPelaHoraETurma('', 'A'));
   const [frente, setFrente] = useState('EH');
 
-  // Equipe
+  // Técnico Responsável e Equipe
   const [tecnicoNome, setTecnicoNome] = useState('');
   const [tecnicoFuncao, setTecnicoFuncao] = useState('Mecânico');
   const [tecnicoMatricula, setTecnicoMatricula] = useState('');
   const [tecnicoGrupo, setTecnicoGrupo] = useState('');
-  const [showExtraEquipe, setShowExtraEquipe] = useState(false);
-  const [extraIntegrantes, setExtraIntegrantes] = useState<Array<{
-    id: string;
-    nome: string;
-    funcao: string;
-    matricula: string;
-    papel: string;
-  }>>([]);
-  const [eletricista, setEletricista] = useState('');
-  const [mecanico, setMecanico] = useState('');
-  const [auxiliar, setAuxiliar] = useState('');
-  const [motorista, setMotorista] = useState('');
-  const [monitor, setMonitor] = useState('');
+  const [extraIntegrantes, setExtraIntegrantes] = useState<
+    Array<{
+      id: string;
+      nome: string;
+      funcao: string;
+      matricula: string;
+      papel: string;
+    }>
+  >([]);
 
-  // Atendimentos List
+  // Carrega último técnico usado no aparelho como sugestão inicial
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(ULTIMO_TECNICO_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.nome) {
+          setTecnicoNome(parsed.nome);
+          setTecnicoFuncao(parsed.funcao || 'Mecânico');
+          setTecnicoMatricula(parsed.matricula || '');
+          setTecnicoGrupo(parsed.grupo || '');
+        }
+      }
+    } catch {}
+  }, []);
+
+  // Lista de Atendimentos, Pendências e Observações do relatório ativo
   const [atendimentos, setAtendimentos] = useState<Atendimento[]>([]);
-  
-  // Pendências List
   const [pendencias, setPendencias] = useState<Pendencia[]>([]);
-
-  // Observações Gerais
   const [observacoesGerais, setObservacoesGerais] = useState('');
+  const [mostrarObservacoes, setMostrarObservacoes] = useState(false);
 
-  // Quick suggestions for equipment on taps:
+  // Controles de destravamento individual na tela "ATENDIMENTO • <TAG>" (C2.a e C2.b)
+  const [destravarCabecalho, setDestravarCabecalho] = useState<{
+    om?: boolean;
+    equipe?: boolean;
+    tipoManut?: boolean;
+    horaInicio?: boolean;
+    dataTurma?: boolean;
+    sintomaCatalogo?: boolean;
+  }>({});
+
   const presetEquipments = ['EH-4050', 'EH-5004', 'CR-3116', 'PF-1031', 'EH-5003'];
 
-  // Refs and states to prevent duplicate sends/saves and handle success overlays
-  const skipAutoSaveRef = React.useRef(false);
-  const autoSaveTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  // Refs para auto-save de rascunho a cada alteração (Regra C2.e)
+  const skipAutoSaveRef = useRef(false);
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [ultimoAutoSaveHhMm, setUltimoAutoSaveHhMm] = useState<string>('');
 
-  // ---------------------------------------------------------------------------
-  // PARADAS AGUARDANDO ATENDIMENTO & CICLO DE VIDA DO ATENDIMENTO (CONTROLE)
-  // ---------------------------------------------------------------------------
+  // Relógio de atualização a cada 30s
   const [liveNow, setLiveNow] = useState(() => Date.now());
   const [filtroFrenteParada, setFiltroFrenteParada] = useState<'TODAS' | 'EH' | 'CR' | 'PF' | 'INFRA'>('TODAS');
   const [filtroTagParada, setFiltroTagParada] = useState('');
-  const [activeParadaId, setActiveParadaId] = useState<string | null>(null);
   const [highlightParadaId, setHighlightParadaId] = useState<string | null>(null);
+  const [meusIdsLocais, setMeusIdsLocais] = useState<string[]>(() => getMeusAtendimentosIds());
 
-  // Modal 1: Iniciar Atendimento
+  // Modal C1: INICIAR ATENDIMENTO • <TAG>
   const [iniciandoParada, setIniciandoParada] = useState<Parada | null>(null);
   const [iniciandoHoraToqueIso, setIniciandoHoraToqueIso] = useState<string>('');
   const [iniciandoHoraHhMm, setIniciandoHoraHhMm] = useState<string>('');
   const [iniciandoTipoManutencao, setIniciandoTipoManutencao] = useState<'CORRETIVA' | 'PREVENTIVA' | 'PROGRAMADA'>('CORRETIVA');
   const [iniciandoErroTecnico, setIniciandoErroTecnico] = useState<string>('');
 
-  // Modal 2: Abrir Nova Parada (pelo técnico)
+  // Modal C3: ABRIR NOVA PARADA (pelo técnico)
   const [showNovaParadaModal, setShowNovaParadaModal] = useState(false);
   const [novaParadaTag, setNovaParadaTag] = useState('');
   const [novaParadaFrente, setNovaParadaFrente] = useState('EH');
-  const [novaParadaHoraReal, setNovaParadaHoraReal] = useState(() => new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false }));
+  const [novaParadaHoraReal, setNovaParadaHoraReal] = useState(() =>
+    new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false })
+  );
   const [novaParadaCodigo, setNovaParadaCodigo] = useState('HMC 9130');
   const [novaParadaOS, setNovaParadaOS] = useState('');
   const [novaParadaSintoma, setNovaParadaSintoma] = useState('');
   const [novaParadaFalha, setNovaParadaFalha] = useState<FalhaCatalogada | null>(null);
 
-  // Modal 3: Pausar Atendimento
+  // Modal PAUSAR ATENDIMENTO
   const [pausandoParada, setPausandoParada] = useState<Parada | null>(null);
   const [pausaHoraToqueIso, setPausaHoraToqueIso] = useState<string>('');
   const [pausaHoraHhMm, setPausaHoraHhMm] = useState<string>('');
@@ -205,26 +304,27 @@ export function MechanicView({
   const [pausaComplemento, setPausaComplemento] = useState('');
   const [pausaBuscaOutro, setPausaBuscaOutro] = useState('');
 
-  // Modal 4: Retomar Atendimento
+  // Modal RETOMAR ATENDIMENTO
   const [retomandoParada, setRetomandoParada] = useState<Parada | null>(null);
   const [retomarHoraToqueIso, setRetomarHoraToqueIso] = useState<string>('');
   const [retomarHoraHhMm, setRetomarHoraHhMm] = useState<string>('');
 
-  // Modal 5: Finalizar Atendimento
+  // Modal FINALIZAR ATENDIMENTO (C2.d)
   const [finalizandoParada, setFinalizandoParada] = useState<Parada | null>(null);
   const [finalizarHoraToqueIso, setFinalizarHoraToqueIso] = useState<string>('');
-  const [finalizarHoraFim, setFinalizarHoraFim] = useState(() => new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false }));
+  const [finalizarHoraFim, setFinalizarHoraFim] = useState(() =>
+    new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false })
+  );
   const [finalizarLiberado, setFinalizarLiberado] = useState(true);
   const [finalizarCodigoContinuacao, setFinalizarCodigoContinuacao] = useState('HMC 9118');
-  const [finalizarBuscaOutroAg, setFinalizarBuscaOutroAg] = useState('');
   const [finalizarComplemento, setFinalizarComplemento] = useState('');
+  const [finalizarHorimetro, setFinalizarHorimetro] = useState('');
   const [finalizarSintoma, setFinalizarSintoma] = useState('');
   const [finalizarFalha, setFinalizarFalha] = useState<FalhaCatalogada | null>(null);
   const [finalizarCausa, setFinalizarCausa] = useState('');
   const [finalizarAcao, setFinalizarAcao] = useState('');
   const [finalizarErro, setFinalizarErro] = useState('');
 
-  // Atualiza "Parado há Xh Ym" a cada 30 segundos
   useEffect(() => {
     const interval = setInterval(() => {
       setLiveNow(Date.now());
@@ -235,7 +335,7 @@ export function MechanicView({
   // Lista de Paradas ABERTAS ordenadas pelo maior tempo parado
   const paradasAbertasOrdenadas = useMemo(() => {
     return paradas
-      .filter(p => p.situacao === 'ABERTA')
+      .filter((p) => p.situacao === 'ABERTA')
       .sort((a, b) => {
         const dA = calcularDuracaoTotalParadaMinutos(a, liveNow);
         const dB = calcularDuracaoTotalParadaMinutos(b, liveNow);
@@ -243,9 +343,9 @@ export function MechanicView({
       });
   }, [paradas, liveNow]);
 
-  // Filtro por frente (EH, CR, PF, INFRA) e busca por TAG
+  // Filtro por frente e busca por TAG (B1)
   const paradasAbertasFiltradas = useMemo(() => {
-    return paradasAbertasOrdenadas.filter(p => {
+    return paradasAbertasOrdenadas.filter((p) => {
       if (filtroFrenteParada !== 'TODAS' && p.frente !== filtroFrenteParada) return false;
       if (filtroTagParada.trim()) {
         const q = removerAcentos(filtroTagParada);
@@ -258,59 +358,279 @@ export function MechanicView({
     });
   }, [paradasAbertasOrdenadas, filtroFrenteParada, filtroTagParada]);
 
-  // Parada ativa vinculada ao atendimento atual do técnico
+  // B2. "MEUS ATENDIMENTOS EM ANDAMENTO": paradas que este aparelho/técnico iniciou e ainda não finalizou
+  const meusAtendimentosEmAndamento = useMemo(() => {
+    const tecNorm = removerAcentos(tecnicoNome);
+    const rascunhosDoUsuario = reports.filter(
+      (r) => r.mechanicUsername === user.username && r.status === 'RASCUNHO'
+    );
+
+    return paradasAbertasOrdenadas.filter((p) => {
+      if (!p.emAtendimentoPor) return false;
+      if (meusIdsLocais.includes(p.id)) return true;
+      if (activeParadaId === p.id) return true;
+
+      if (tecNorm) {
+        const princNorm = removerAcentos(p.emAtendimentoPor.tecnicoPrincipal.nome || '');
+        const naEquipe = (p.emAtendimentoPor.membrosEquipe || []).some(
+          (m) => removerAcentos(m.nome) === tecNorm
+        );
+        if (princNorm === tecNorm || naEquipe) return true;
+      }
+
+      const temRascunho = rascunhosDoUsuario.some(
+        (r) =>
+          (p.relatorioIds || []).includes(r.id) ||
+          (r.atendimentos || []).some((a) => normalizarTag(a.equipamento) === normalizarTag(p.tag))
+      );
+      return temRascunho;
+    });
+  }, [paradasAbertasOrdenadas, meusIdsLocais, activeParadaId, tecnicoNome, reports, user.username]);
+
+  // Parada ativa na tela "ATENDIMENTO • <TAG>" (C2)
   const activeParada = useMemo(() => {
     if (activeParadaId) {
-      const found = paradas.find(p => p.id === activeParadaId && p.situacao === 'ABERTA');
+      const found = paradas.find((p) => p.id === activeParadaId);
       if (found) return found;
     }
-    if (tecnicoNome.trim()) {
-      const byTec = paradas.find(
-        p =>
-          p.situacao === 'ABERTA' &&
-          p.emAtendimentoPor &&
-          (p.emAtendimentoPor.tecnicoPrincipal.nome.toLowerCase() === tecnicoNome.trim().toLowerCase() ||
-            (p.emAtendimentoPor.membrosEquipe || []).some(m => m.nome.toLowerCase() === tecnicoNome.trim().toLowerCase()))
-      );
-      if (byTec) return byTec;
-    }
     return null;
-  }, [paradas, activeParadaId, tecnicoNome]);
+  }, [paradas, activeParadaId]);
+
+  // Atendimento atual correspondente à parada ativa (ou primeiro atendimento do rascunho)
+  const atendimentoAtual = useMemo(() => {
+    if (activeParada) {
+      const match = atendimentos.find(
+        (a) => normalizarTag(a.equipamento) === normalizarTag(activeParada.tag)
+      );
+      if (match) return match;
+    }
+    return atendimentos[0] || null;
+  }, [atendimentos, activeParada]);
 
   // Verifica duplicidade ao digitar TAG no modal "ABRIR NOVA PARADA"
   const paradaDuplicadaExistente = useMemo(() => {
     if (!novaParadaTag.trim()) return null;
     const norm = normalizarTag(novaParadaTag);
-    return paradas.find(p => p.situacao === 'ABERTA' && normalizarTag(p.tag) === norm) || null;
+    return paradas.find((p) => p.situacao === 'ABERTA' && normalizarTag(p.tag) === norm) || null;
   }, [novaParadaTag, paradas]);
 
-  // Initialize form with a fresh new report structure
+  // Constrói o objeto Report atual para salvar rascunho ou enviar
+  const buildReportObject = (
+    status: 'RASCUNHO' | 'ENVIADO',
+    customAtendimentos?: Atendimento[],
+    forcedId?: string,
+    forcedTecnicoNome?: string
+  ): Report => {
+    const tecNomeFinal = (forcedTecnicoNome ?? tecnicoNome).trim();
+    const listaAt = (customAtendimentos ?? atendimentos).map((at) => ({
+      ...at,
+      tipoManutencao: at.tipoManutencao || 'CORRETIVA',
+      atuantes: at.atuantes || tecNomeFinal || ''
+    }));
+
+    const auxNome = extraIntegrantes
+      .filter((m) => m.papel === 'Auxiliar')
+      .map((m) => m.nome)
+      .join(', ');
+    const motNome = extraIntegrantes
+      .filter((m) => m.papel === 'Motorista')
+      .map((m) => m.nome)
+      .join(', ');
+
+    return {
+      id: forcedId || activeReportId || `rep-${Date.now()}`,
+      dateStart,
+      dateEnd,
+      team,
+      shift,
+      frente,
+      tecnicoNome: tecNomeFinal,
+      tecnicoFuncao,
+      tecnicoMatricula,
+      tecnicoGrupo,
+      eletricista: tecnicoFuncao.toLowerCase().includes('eletricista') ? tecNomeFinal : '',
+      mecanico: tecnicoFuncao.toLowerCase().includes('mecanico') || tecnicoFuncao.toLowerCase().includes('mecânico') ? tecNomeFinal : '',
+      auxiliar: auxNome,
+      motorista: motNome,
+      monitor: '',
+      equipeDetalhada: extraIntegrantes
+        .filter((m) => m.nome.trim() !== '')
+        .map((m) => ({
+          nome: m.nome,
+          matricula: m.matricula,
+          funcao: m.funcao,
+          papel: m.papel
+        })),
+      atendimentos: listaAt,
+      pendencias,
+      observacoesGerais,
+      status,
+      mechanicUsername: user.username,
+      createdAt: new Date().toISOString()
+    };
+  };
+
+  // Auto-save silencioso de rascunho a cada alteração enquanto estiver na tela de atendimento (Regra C2.e)
+  useEffect(() => {
+    if (activeTab !== 'atendimento' || !activeReportId || skipAutoSaveRef.current) return;
+    if (atendimentos.length === 0) return;
+
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    autoSaveTimerRef.current = setTimeout(() => {
+      const draft = buildReportObject('RASCUNHO');
+      onSaveReport(draft, true);
+      setUltimoAutoSaveHhMm(
+        new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false })
+      );
+    }, 500);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [
+    activeTab,
+    activeReportId,
+    dateStart,
+    dateEnd,
+    team,
+    shift,
+    frente,
+    tecnicoNome,
+    tecnicoFuncao,
+    tecnicoMatricula,
+    tecnicoGrupo,
+    extraIntegrantes,
+    atendimentos,
+    pendencias,
+    observacoesGerais
+  ]);
+
+  // Limpa estados para um novo atendimento
   const handleResetForm = () => {
-    setActiveReportId(`rep-${Date.now()}-${Math.floor(Math.random() * 10000)}`);
-    setDateStart(new Date().toISOString().slice(0, 10));
-    setDateEnd(new Date().toISOString().slice(0, 10));
-    setTeam('A');
-    setShift('18:00 às 06:00');
-    setFrente('EH');
-    setTecnicoNome('');
-    setTecnicoFuncao('Mecânico');
-    setTecnicoMatricula('');
-    setTecnicoGrupo('');
-    setShowExtraEquipe(false);
-    setExtraIntegrantes([]);
-    setEletricista('');
-    setMecanico('');
-    setAuxiliar('');
-    setMotorista('');
-    setMonitor('');
+    setActiveReportId(null);
+    setActiveParadaId(null);
     setAtendimentos([]);
     setPendencias([]);
     setObservacoesGerais('');
-    setActiveParadaId(null);
-    setActiveTab('form');
+    setMostrarObservacoes(false);
+    setDestravarCabecalho({});
   };
 
-  // Load an existing report from history into the form for editing
+  // Abre a tela "ATENDIMENTO • <TAG>" para continuar um atendimento já em andamento (B2 -> C2)
+  const handleContinuarAtendimentoParada = (parada: Parada) => {
+    // Procura se já existe um rascunho salvo para esta parada
+    const rascunhoExistente = reports.find(
+      (r) =>
+        r.status === 'RASCUNHO' &&
+        ((parada.relatorioIds || []).includes(r.id) ||
+          (r.atendimentos || []).some((a) => normalizarTag(a.equipamento) === normalizarTag(parada.tag)))
+    );
+
+    const horaRealHhMm = new Date(parada.inicioParada).toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+    const horaInicioHhMm = parada.emAtendimentoPor?.inicioAtendimento
+      ? new Date(parada.emAtendimentoPor.inicioAtendimento).toLocaleTimeString('pt-BR', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        })
+      : new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+    const dataInicioIso = parada.emAtendimentoPor?.inicioAtendimento
+      ? new Date(parada.emAtendimentoPor.inicioAtendimento).toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+
+    if (rascunhoExistente) {
+      setActiveReportId(rascunhoExistente.id);
+      setDateStart(rascunhoExistente.dateStart || dataInicioIso);
+      setDateEnd(rascunhoExistente.dateEnd || dataInicioIso);
+      setTeam(rascunhoExistente.team || team);
+      setShift(
+        rascunhoExistente.shift || calcularTurnoPelaHoraETurma(horaInicioHhMm, rascunhoExistente.team || team)
+      );
+      setFrente(parada.frente || rascunhoExistente.frente || derivarFrenteDaTag(parada.tag));
+      if (rascunhoExistente.tecnicoNome) {
+        setTecnicoNome(rascunhoExistente.tecnicoNome);
+        setTecnicoFuncao(rascunhoExistente.tecnicoFuncao || 'Mecânico');
+        setTecnicoMatricula(rascunhoExistente.tecnicoMatricula || '');
+        setTecnicoGrupo(rascunhoExistente.tecnicoGrupo || '');
+      } else if (parada.emAtendimentoPor?.tecnicoPrincipal) {
+        setTecnicoNome(parada.emAtendimentoPor.tecnicoPrincipal.nome);
+        setTecnicoFuncao(parada.emAtendimentoPor.tecnicoPrincipal.funcao || 'Mecânico');
+        setTecnicoMatricula(parada.emAtendimentoPor.tecnicoPrincipal.matricula || '');
+        setTecnicoGrupo(parada.emAtendimentoPor.tecnicoPrincipal.grupo || '');
+      }
+      setAtendimentos(rascunhoExistente.atendimentos || []);
+      setPendencias(rascunhoExistente.pendencias || []);
+      setObservacoesGerais(rascunhoExistente.observacoesGerais || '');
+      setMostrarObservacoes(Boolean(rascunhoExistente.observacoesGerais));
+    } else {
+      const novoRepId = `rep-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+      const tecPrinc = parada.emAtendimentoPor?.tecnicoPrincipal;
+      const nomeTec = tecPrinc?.nome || tecnicoNome || user.name || user.username;
+      const membros = parada.emAtendimentoPor?.membrosEquipe || [];
+      const todosAtuantes = [nomeTec, ...membros.map((m) => m.nome)].filter(Boolean).join(', ');
+      const sintomaParada = formatarFalhaCard(parada.falha, parada.sintomaInicial);
+
+      setActiveReportId(novoRepId);
+      setDateStart(dataInicioIso);
+      setDateEnd(dataInicioIso);
+      setShift(calcularTurnoPelaHoraETurma(horaInicioHhMm, team));
+      setFrente(parada.frente || derivarFrenteDaTag(parada.tag));
+      if (tecPrinc) {
+        setTecnicoNome(tecPrinc.nome);
+        setTecnicoFuncao(tecPrinc.funcao || 'Mecânico');
+        setTecnicoMatricula(tecPrinc.matricula || '');
+        setTecnicoGrupo(tecPrinc.grupo || '');
+      }
+      setExtraIntegrantes(
+        membros.map((m, idx) => ({
+          id: m.id || `int-${idx}`,
+          nome: m.nome,
+          funcao: m.funcao || 'Auxiliar',
+          matricula: m.matricula || '',
+          papel: m.papel || 'Mecânico Apoio'
+        }))
+      );
+      setAtendimentos([
+        {
+          id: `at-${Date.now()}`,
+          equipamento: parada.tag,
+          om: parada.numeroOS || '',
+          horimetro: '',
+          sintoma: sintomaParada || '',
+          falha: parada.falha || null,
+          causa: '',
+          acaoExecutada: '',
+          horaRealParada: horaRealHhMm,
+          horaInicio: horaInicioHhMm,
+          horaFim: '',
+          tipoManutencao: parada.emAtendimentoPor?.tipoManutencao || 'CORRETIVA',
+          liberadoOperacao: false,
+          previsaoLiberacao: parada.previsaoLiberacao || '',
+          atuantes: todosAtuantes
+        }
+      ]);
+      setPendencias([]);
+      setObservacoesGerais('');
+      setMostrarObservacoes(false);
+    }
+
+    setDestravarCabecalho({});
+    setActiveParadaId(parada.id);
+    setActiveTab('atendimento');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Carrega um relatório a partir da aba "MEUS RELATÓRIOS"
   const handleLoadReport = (report: Report) => {
     setActiveReportId(report.id);
     setDateStart(report.dateStart);
@@ -322,54 +642,52 @@ export function MechanicView({
     setTecnicoFuncao(report.tecnicoFuncao || 'Mecânico');
     setTecnicoMatricula(report.tecnicoMatricula || '');
     setTecnicoGrupo(report.tecnicoGrupo || '');
-    
+
     if (report.equipeDetalhada && report.equipeDetalhada.length > 0) {
-      setExtraIntegrantes(report.equipeDetalhada.map((e, idx) => ({
-        id: `int-${idx}-${Date.now()}`,
-        nome: e.nome,
-        funcao: e.funcao || 'Auxiliar',
-        matricula: e.matricula || '',
-        papel: e.papel || 'Auxiliar'
-      })));
-      setShowExtraEquipe(true);
-    } else if (report.auxiliar || report.motorista) {
-      const ints = [];
-      if (report.auxiliar) {
-        ints.push({ id: `int-1`, nome: report.auxiliar, funcao: 'Auxiliar', matricula: '', papel: 'Auxiliar' });
-      }
-      if (report.motorista) {
-        ints.push({ id: `int-2`, nome: report.motorista, funcao: 'Motorista', matricula: '', papel: 'Motorista' });
-      }
-      setExtraIntegrantes(ints);
-      setShowExtraEquipe(true);
+      setExtraIntegrantes(
+        report.equipeDetalhada.map((e, idx) => ({
+          id: `int-${idx}-${Date.now()}`,
+          nome: e.nome,
+          funcao: e.funcao || 'Auxiliar',
+          matricula: e.matricula || '',
+          papel: e.papel || 'Auxiliar'
+        }))
+      );
     } else {
       setExtraIntegrantes([]);
-      setShowExtraEquipe(false);
     }
 
-    setEletricista(report.eletricista || '');
-    setMecanico(report.mecanico || '');
-    setAuxiliar(report.auxiliar || '');
-    setMotorista(report.motorista || '');
-    setMonitor(report.monitor || '');
     setAtendimentos(report.atendimentos || []);
     setPendencias(report.pendencias || []);
     setObservacoesGerais(report.observacoesGerais || '');
-    setActiveTab('form');
+    setMostrarObservacoes(Boolean(report.observacoesGerais));
+
+    const firstTag = report.atendimentos?.[0]?.equipamento;
+    const paradaVinc = firstTag
+      ? paradas.find((p) => normalizarTag(p.tag) === normalizarTag(firstTag))
+      : undefined;
+
+    setActiveParadaId(paradaVinc?.id || null);
+    setDestravarCabecalho({});
+    setActiveTab('atendimento');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  useEffect(() => {
-    handleResetForm();
-  }, [user.username]);
-
   // ---------------------------------------------------------------------------
-  // AÇÕES DO CICLO DE VIDA DA PARADA (INICIAR, PAUSAR, RETOMAR, FINALIZAR, NOVA)
+  // C1. MODAL "INICIAR ATENDIMENTO • <TAG>"
   // ---------------------------------------------------------------------------
-
-  // Abrir modal para Iniciar Atendimento da Parada
   const handleAbrirModalIniciar = (parada: Parada) => {
     const agoraIso = new Date().toISOString();
-    const agoraHhMm = new Date(agoraIso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const agoraHhMm = new Date(agoraIso).toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+    try {
+      const ultimaTurma = localStorage.getItem(ULTIMA_TURMA_KEY);
+      if (ultimaTurma) setTeam(ultimaTurma);
+    } catch {}
+
     setIniciandoParada(parada);
     setIniciandoHoraToqueIso(agoraIso);
     setIniciandoHoraHhMm(agoraHhMm);
@@ -377,7 +695,6 @@ export function MechanicView({
     setIniciandoErroTecnico('');
   };
 
-  // Confirmar Início do Atendimento
   const handleConfirmarIniciarAtendimento = () => {
     if (!iniciandoParada) return;
     if (!tecnicoNome.trim()) {
@@ -385,17 +702,30 @@ export function MechanicView({
       return;
     }
 
-    const repId = activeReportId || `rep-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-    if (!activeReportId) setActiveReportId(repId);
+    // Salva a última turma usada neste aparelho (Regra C1)
+    try {
+      localStorage.setItem(ULTIMA_TURMA_KEY, team);
+    } catch {}
 
+    const repId = `rep-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
     const segAtual = getSegmentoAtual(iniciandoParada);
     const horaToqueEfetivaIso = resolverHorarioIso(iniciandoHoraHhMm, iniciandoHoraToqueIso, segAtual.inicio);
-    const horaInicioHhMm = new Date(horaToqueEfetivaIso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
-    const horaRealParadaHhMm = new Date(iniciandoParada.inicioParada).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const horaInicioHhMm = new Date(horaToqueEfetivaIso).toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+    const dataInicioYmd = new Date(horaToqueEfetivaIso).toISOString().slice(0, 10);
+    const turnoCalculado = calcularTurnoPelaHoraETurma(horaInicioHhMm, team);
+    const horaRealParadaHhMm = new Date(iniciandoParada.inicioParada).toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
 
     const membrosValidos = extraIntegrantes
-      .filter(m => m.nome.trim() !== '')
-      .map(m => ({
+      .filter((m) => m.nome.trim() !== '')
+      .map((m) => ({
         id: m.id,
         nome: m.nome.trim(),
         matricula: m.matricula,
@@ -403,7 +733,7 @@ export function MechanicView({
         papel: m.papel
       }));
 
-    // Atualiza a Parada (se outro técnico já iniciou, iniciarAtendimentoParada adiciona este técnico na equipe da mesma parada sem duplicar)
+    // Fecha o segmento atual e abre EXEC MANUT no horário informado
     const paradaAtualizada = iniciarAtendimentoParada({
       parada: iniciandoParada,
       tecnicoNome: tecnicoNome.trim(),
@@ -420,71 +750,95 @@ export function MechanicView({
       onSaveParada(paradaAtualizada);
     }
 
-    setActiveParadaId(paradaAtualizada.id);
-    setFrente(paradaAtualizada.frente || derivarFrenteDaTag(paradaAtualizada.tag));
+    addMeuAtendimentoId(paradaAtualizada.id);
+    setMeusIdsLocais(getMeusAtendimentosIds());
 
-    // Monta string de atuantes (técnico principal + membros da equipe da parada)
     const todosAtuantes = [
       paradaAtualizada.emAtendimentoPor?.tecnicoPrincipal.nome || tecnicoNome.trim(),
-      ...(paradaAtualizada.emAtendimentoPor?.membrosEquipe || []).map(m => m.nome)
+      ...(paradaAtualizada.emAtendimentoPor?.membrosEquipe || []).map((m) => m.nome)
     ].filter(Boolean);
     const atuantesStr = Array.from(new Set(todosAtuantes)).join(', ');
 
-    // Preenche/atualiza automaticamente o card de Equipamento Atendido no formulário do relatório
     const sintomaParada = formatarFalhaCard(paradaAtualizada.falha, paradaAtualizada.sintomaInicial);
-    setAtendimentos((prev) => {
-      const idxExistente = prev.findIndex(a => normalizarTag(a.equipamento) === normalizarTag(paradaAtualizada.tag));
-      if (idxExistente >= 0) {
-        return prev.map((a, i) =>
-          i === idxExistente
-            ? {
-                ...a,
-                equipamento: paradaAtualizada.tag,
-                om: a.om || paradaAtualizada.numeroOS || '',
-                sintoma: a.sintoma || sintomaParada || '',
-                falha: a.falha || paradaAtualizada.falha || null,
-                horaRealParada: horaRealParadaHhMm,
-                horaInicio: a.horaInicio || horaInicioHhMm,
-                tipoManutencao: iniciandoTipoManutencao,
-                atuantes: atuantesStr
-              }
-            : a
-        );
-      }
+    const novoAt: Atendimento = {
+      id: `at-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      equipamento: paradaAtualizada.tag,
+      om: paradaAtualizada.numeroOS || '',
+      horimetro: '',
+      sintoma: sintomaParada || '',
+      falha: paradaAtualizada.falha || null,
+      causa: '',
+      acaoExecutada: '',
+      horaRealParada: horaRealParadaHhMm,
+      horaInicio: horaInicioHhMm,
+      horaFim: '',
+      tipoManutencao: iniciandoTipoManutencao,
+      liberadoOperacao: false,
+      previsaoLiberacao: paradaAtualizada.previsaoLiberacao || '',
+      atuantes: atuantesStr
+    };
 
-      const novoAt: Atendimento = {
-        id: `at-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        equipamento: paradaAtualizada.tag,
-        om: paradaAtualizada.numeroOS || '',
-        horimetro: '',
-        sintoma: sintomaParada || '',
-        falha: paradaAtualizada.falha || null,
-        causa: '',
-        acaoExecutada: '',
-        horaRealParada: horaRealParadaHhMm,
-        horaInicio: horaInicioHhMm,
-        horaFim: '',
-        tipoManutencao: iniciandoTipoManutencao,
-        liberadoOperacao: false,
-        previsaoLiberacao: paradaAtualizada.previsaoLiberacao || '',
-        atuantes: atuantesStr
-      };
-      return [novoAt, ...prev];
-    });
+    const fParada = paradaAtualizada.frente || derivarFrenteDaTag(paradaAtualizada.tag);
 
+    setActiveReportId(repId);
+    setActiveParadaId(paradaAtualizada.id);
+    setDateStart(dataInicioYmd);
+    setDateEnd(dataInicioYmd);
+    setShift(turnoCalculado);
+    setFrente(fParada);
+    setAtendimentos([novoAt]);
+    setPendencias([]);
+    setObservacoesGerais('');
+    setMostrarObservacoes(false);
+    setDestravarCabecalho({});
     setIniciandoParada(null);
 
-    // Rola suavemente para o formulário preenchido
-    setTimeout(() => {
-      const el = document.getElementById('secao-equipamentos-atendidos');
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 150);
+    // Salva rascunho automático imediatamente e abre a tela "ATENDIMENTO • <TAG>" (Regra C1)
+    const rascunhoInicial: Report = {
+      id: repId,
+      dateStart: dataInicioYmd,
+      dateEnd: dataInicioYmd,
+      team,
+      shift: turnoCalculado,
+      frente: fParada,
+      tecnicoNome: tecnicoNome.trim(),
+      tecnicoFuncao,
+      tecnicoMatricula,
+      tecnicoGrupo,
+      eletricista: tecnicoFuncao.toLowerCase().includes('eletricista') ? tecnicoNome.trim() : '',
+      mecanico: tecnicoFuncao.toLowerCase().includes('mecanico') || tecnicoFuncao.toLowerCase().includes('mecânico') ? tecnicoNome.trim() : '',
+      auxiliar: '',
+      motorista: '',
+      monitor: '',
+      equipeDetalhada: membrosValidos.map((m) => ({
+        nome: m.nome,
+        matricula: m.matricula,
+        funcao: m.funcao,
+        papel: m.papel
+      })),
+      atendimentos: [novoAt],
+      pendencias: [],
+      observacoesGerais: '',
+      status: 'RASCUNHO',
+      mechanicUsername: user.username,
+      createdAt: new Date().toISOString()
+    };
+
+    onSaveReport(rascunhoInicial, true);
+    setActiveTab('atendimento');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Abrir modal para Pausar Atendimento
+  // ---------------------------------------------------------------------------
+  // PAUSAR / RETOMAR / FINALIZAR
+  // ---------------------------------------------------------------------------
   const handleAbrirModalPausar = (parada: Parada) => {
     const agoraIso = new Date().toISOString();
-    const agoraHhMm = new Date(agoraIso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const agoraHhMm = new Date(agoraIso).toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
     setPausandoParada(parada);
     setPausaHoraToqueIso(agoraIso);
     setPausaHoraHhMm(agoraHhMm);
@@ -494,11 +848,15 @@ export function MechanicView({
     setPausaBuscaOutro('');
   };
 
-  // Confirmar Pausa do Atendimento
   const handleConfirmarPausa = () => {
     if (!pausandoParada) return;
-    const nomeTec = tecnicoNome.trim() || pausandoParada.emAtendimentoPor?.tecnicoPrincipal.nome || user.name || user.username;
-    const matTec = tecnicoMatricula || pausandoParada.emAtendimentoPor?.tecnicoPrincipal.matricula || undefined;
+    const nomeTec =
+      tecnicoNome.trim() ||
+      pausandoParada.emAtendimentoPor?.tecnicoPrincipal.nome ||
+      user.name ||
+      user.username;
+    const matTec =
+      tecnicoMatricula || pausandoParada.emAtendimentoPor?.tecnicoPrincipal.matricula || undefined;
 
     const segAtual = getSegmentoAtual(pausandoParada);
     const horaPausaIso = resolverHorarioIso(pausaHoraHhMm, pausaHoraToqueIso, segAtual.inicio);
@@ -518,20 +876,27 @@ export function MechanicView({
     setPausandoParada(null);
   };
 
-  // Abrir modal para Retomar Atendimento
   const handleAbrirModalRetomar = (parada: Parada) => {
     const agoraIso = new Date().toISOString();
-    const agoraHhMm = new Date(agoraIso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const agoraHhMm = new Date(agoraIso).toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
     setRetomandoParada(parada);
     setRetomarHoraToqueIso(agoraIso);
     setRetomarHoraHhMm(agoraHhMm);
   };
 
-  // Confirmar Retomada do Atendimento
   const handleConfirmarRetomar = () => {
     if (!retomandoParada) return;
-    const nomeTec = tecnicoNome.trim() || retomandoParada.emAtendimentoPor?.tecnicoPrincipal.nome || user.name || user.username;
-    const matTec = tecnicoMatricula || retomandoParada.emAtendimentoPor?.tecnicoPrincipal.matricula || undefined;
+    const nomeTec =
+      tecnicoNome.trim() ||
+      retomandoParada.emAtendimentoPor?.tecnicoPrincipal.nome ||
+      user.name ||
+      user.username;
+    const matTec =
+      tecnicoMatricula || retomandoParada.emAtendimentoPor?.tecnicoPrincipal.matricula || undefined;
 
     const segAtual = getSegmentoAtual(retomandoParada);
     const horaRetomadaIso = resolverHorarioIso(retomarHoraHhMm, retomarHoraToqueIso, segAtual.inicio);
@@ -549,11 +914,16 @@ export function MechanicView({
     setRetomandoParada(null);
   };
 
-  // Abrir modal para Finalizar Atendimento
   const handleAbrirModalFinalizar = (parada: Parada) => {
     const agoraIso = new Date().toISOString();
-    const agoraHhMm = new Date(agoraIso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
-    const atExistente = atendimentos.find(a => normalizarTag(a.equipamento) === normalizarTag(parada.tag));
+    const agoraHhMm = new Date(agoraIso).toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+    const atExistente = atendimentos.find(
+      (a) => normalizarTag(a.equipamento) === normalizarTag(parada.tag)
+    );
     const falhaInicial = atExistente?.falha || parada.falha || null;
 
     setFinalizandoParada(parada);
@@ -561,18 +931,24 @@ export function MechanicView({
     setFinalizarHoraFim(atExistente?.horaFim || agoraHhMm);
     setFinalizarLiberado(true);
     setFinalizarCodigoContinuacao('HMC 9118');
-    setFinalizarBuscaOutroAg('');
     setFinalizarComplemento('');
+    setFinalizarHorimetro(atExistente?.horimetro || '');
     setFinalizarFalha(falhaInicial);
-    setFinalizarSintoma(atExistente?.sintoma || formatarFalhaCard(falhaInicial, parada.sintomaInicial) || '');
+    setFinalizarSintoma(
+      atExistente?.sintoma || formatarFalhaCard(falhaInicial, parada.sintomaInicial) || ''
+    );
     setFinalizarCausa(atExistente?.causa || '');
     setFinalizarAcao(atExistente?.acaoExecutada || '');
     setFinalizarErro('');
   };
 
-  // Confirmar Finalização do Atendimento e Enviar Relatório
   const handleConfirmarFinalizarAtendimento = () => {
     if (!finalizandoParada) return;
+
+    if (!finalizarHorimetro.trim()) {
+      setFinalizarErro('Preencha o Horímetro do equipamento (obrigatório).');
+      return;
+    }
 
     const temCatalogoParada = Boolean(
       perfilDaTag(finalizandoParada.tag) || precisaEscolherPerfilCR(finalizandoParada.tag)
@@ -591,14 +967,22 @@ export function MechanicView({
       return;
     }
 
-    const nomeTec = tecnicoNome.trim() || finalizandoParada.emAtendimentoPor?.tecnicoPrincipal.nome || user.name || user.username;
-    const matTec = tecnicoMatricula || finalizandoParada.emAtendimentoPor?.tecnicoPrincipal.matricula || undefined;
+    const nomeTec =
+      tecnicoNome.trim() ||
+      finalizandoParada.emAtendimentoPor?.tecnicoPrincipal.nome ||
+      user.name ||
+      user.username;
+    const matTec =
+      tecnicoMatricula || finalizandoParada.emAtendimentoPor?.tecnicoPrincipal.matricula || undefined;
     const repId = activeReportId || `rep-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
     const segAtual = getSegmentoAtual(finalizandoParada);
-    const horaFimEfetivaIso = resolverHorarioIso(finalizarHoraFim, finalizarHoraToqueIso, segAtual.inicio);
+    const horaFimEfetivaIso = resolverHorarioIso(
+      finalizarHoraFim,
+      finalizarHoraToqueIso,
+      segAtual.inicio
+    );
 
-    // 1. Atualiza a Parada (fecha EXEC na hora fim e abre HOI 5936 LIBERADO PELA MANUT ou o código AG escolhido)
     const paradaFinalizada = finalizarAtendimentoParada({
       parada: finalizandoParada,
       horaFimIso: horaFimEfetivaIso,
@@ -616,18 +1000,32 @@ export function MechanicView({
       onSaveParada(paradaFinalizada);
     }
 
-    // 2. Atualiza a lista de atendimentos do relatório e envia o relatório normalmente
-    const horaInicioDefault = finalizandoParada.emAtendimentoPor?.inicioAtendimento
-      ? new Date(finalizandoParada.emAtendimentoPor.inicioAtendimento).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false })
-      : finalizarHoraFim;
-    const horaRealDefault = new Date(finalizandoParada.inicioParada).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
+    removeMeuAtendimentoId(finalizandoParada.id);
+    setMeusIdsLocais(getMeusAtendimentosIds());
 
-    const temAtendimentoDaTag = atendimentos.some(a => normalizarTag(a.equipamento) === normalizarTag(finalizandoParada.tag));
+    const horaInicioDefault = finalizandoParada.emAtendimentoPor?.inicioAtendimento
+      ? new Date(finalizandoParada.emAtendimentoPor.inicioAtendimento).toLocaleTimeString('pt-BR', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        })
+      : finalizarHoraFim;
+    const horaRealDefault = new Date(finalizandoParada.inicioParada).toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+
+    const temAtendimentoDaTag = atendimentos.some(
+      (a) => normalizarTag(a.equipamento) === normalizarTag(finalizandoParada.tag)
+    );
     const novosAtendimentos: Atendimento[] = temAtendimentoDaTag
-      ? atendimentos.map(a =>
+      ? atendimentos.map((a) =>
           normalizarTag(a.equipamento) === normalizarTag(finalizandoParada.tag)
             ? {
                 ...a,
+                om: a.om || finalizandoParada.numeroOS || '',
+                horimetro: finalizarHorimetro.trim(),
                 sintoma: sintomaEfetivo,
                 falha: finalizarFalha,
                 causa: finalizarCausa.trim(),
@@ -643,7 +1041,7 @@ export function MechanicView({
             id: `at-${Date.now()}`,
             equipamento: finalizandoParada.tag,
             om: finalizandoParada.numeroOS || '',
-            horimetro: '',
+            horimetro: finalizarHorimetro.trim(),
             sintoma: sintomaEfetivo,
             falha: finalizarFalha,
             causa: finalizarCausa.trim(),
@@ -660,30 +1058,33 @@ export function MechanicView({
 
     setAtendimentos(novosAtendimentos);
     setFinalizandoParada(null);
-    setActiveParadaId(null);
 
-    // Envia o relatório imediatamente com os atendimentos atualizados
+    // Envia o relatório ligado à parada e volta ao painel mostrando "Relatório enviado" (Regra C2.d)
     handleSaveWithCustomAtendimentos('ENVIADO', novosAtendimentos, repId, nomeTec);
   };
 
-  // Criar Nova Parada pelo Técnico (com trava anti-duplicidade)
-  const handleConfirmarNovaParadaTecnico = (e: React.FormEvent) => {
-    e.preventDefault();
+  // C3. "ABRIR NOVA PARADA" pelo técnico (com opção de "Iniciar atendimento agora")
+  const criarParadaPeloTecnico = (iniciarAgora: boolean) => {
     if (!novaParadaTag.trim()) return;
 
     const normTag = normalizarTag(novaParadaTag);
-    const existente = paradas.find(p => p.situacao === 'ABERTA' && normalizarTag(p.tag) === normTag);
+    const existente = paradas.find(
+      (p) => p.situacao === 'ABERTA' && normalizarTag(p.tag) === normTag
+    );
 
     if (existente) {
-      // Se já tiver Parada ABERTA, leva para o card dela sem duplicar
       setShowNovaParadaModal(false);
       setFiltroFrenteParada('TODAS');
       setFiltroTagParada('');
       setHighlightParadaId(existente.id);
-      setTimeout(() => {
-        const cardEl = document.getElementById(`card-parada-${existente.id}`);
-        if (cardEl) cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 150);
+      if (iniciarAgora) {
+        handleAbrirModalIniciar(existente);
+      } else {
+        setTimeout(() => {
+          const cardEl = document.getElementById(`card-parada-${existente.id}`);
+          if (cardEl) cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 150);
+      }
       setTimeout(() => setHighlightParadaId(null), 5000);
       return;
     }
@@ -718,45 +1119,22 @@ export function MechanicView({
     setNovaParadaFalha(null);
     setHighlightParadaId(nova.id);
     setTimeout(() => setHighlightParadaId(null), 4000);
+
+    if (iniciarAgora) {
+      handleAbrirModalIniciar(nova);
+    }
   };
 
-  // Add a new empty Atendimento Card
-  const handleAddAtendimento = () => {
-    const newAt: Atendimento = {
-      id: `at-${Date.now()}-${Math.random()}`,
-      equipamento: '',
-      om: '',
-      horimetro: '',
-      sintoma: '',
-      causa: '',
-      acaoExecutada: '',
-      horaInicio: '',
-      horaFim: '',
-      tipoManutencao: 'CORRETIVA',
-      horaRealParada: '',
-      liberadoOperacao: false,
-      atuantes: tecnicoNome || ''
-    };
-    setAtendimentos([...atendimentos, newAt]);
-  };
-
-  // Remove Atendimento Card
-  const handleRemoveAtendimento = (id: string) => {
-    setAtendimentos(atendimentos.filter(a => a.id !== id));
-  };
-
-  // Update specific Atendimento field
+  // Atualiza um campo do Atendimento atual
   const handleUpdateAtendimento = (id: string, field: keyof Atendimento, value: any) => {
-    setAtendimentos(atendimentos.map(a => a.id === id ? { ...a, [field]: value } : a));
+    setAtendimentos((prev) => prev.map((a) => (a.id === id ? { ...a, [field]: value } : a)));
   };
 
-  // Compress, resize, and convert uploaded image to a lightweight base64 for reliable storage
+  // Upload de fotos com compressão para uso online/offline
   const handleImageUpload = (id: string, files: FileList | null) => {
     if (!files || files.length === 0) return;
 
-    const filesArray = Array.from(files);
-
-    filesArray.forEach((file) => {
+    Array.from(files).forEach((file) => {
       const reader = new FileReader();
       reader.onload = (event) => {
         const img = new Image();
@@ -779,7 +1157,10 @@ export function MechanicView({
             setAtendimentos((currentList) =>
               currentList.map((a) => {
                 if (a.id === id) {
-                  const updatedList = [...(a.photoUrls || (a.photoUrl ? [a.photoUrl] : [])), base64Result];
+                  const updatedList = [
+                    ...(a.photoUrls || (a.photoUrl ? [a.photoUrl] : [])),
+                    base64Result
+                  ];
                   return {
                     ...a,
                     photoUrl: updatedList[0],
@@ -814,7 +1195,7 @@ export function MechanicView({
           const updatedList = currentUrls.filter((_, idx) => idx !== photoIndex);
           return {
             ...a,
-            photoUrl: updatedList[0] || "",
+            photoUrl: updatedList[0] || '',
             photoUrls: updatedList
           };
         }
@@ -823,24 +1204,23 @@ export function MechanicView({
     );
   };
 
-  // Add empty Pendência Card
+  // Pendências opcionais na tela de atendimento
   const handleAddPendencia = () => {
+    const defaultTag = activeParada?.tag || atendimentoAtual?.equipamento || '';
     const newPend: Pendencia = {
       id: `pend-${Date.now()}-${Math.random()}`,
-      equipamento: '',
+      equipamento: defaultTag,
       descricao: ''
     };
     setPendencias([...pendencias, newPend]);
   };
 
-  // Remove Pendência Card
   const handleRemovePendencia = (id: string) => {
-    setPendencias(pendencias.filter(p => p.id !== id));
+    setPendencias(pendencias.filter((p) => p.id !== id));
   };
 
-  // Update specific Pendência field
   const handleUpdatePendencia = (id: string, field: keyof Pendencia, value: any) => {
-    setPendencias(pendencias.map(p => p.id === id ? { ...p, [field]: value } : p));
+    setPendencias(pendencias.map((p) => (p.id === id ? { ...p, [field]: value } : p)));
   };
 
   const handleSaveWithCustomAtendimentos = (
@@ -857,52 +1237,19 @@ export function MechanicView({
       clearTimeout(autoSaveTimerRef.current);
     }
 
-    const tecNomeFinal = (forcedTecnicoNome || tecnicoNome).trim();
-
-    const sanitizedAtendimentos = listaAtendimentos.map((at) => ({
-      ...at,
-      tipoManutencao: at.tipoManutencao || 'CORRETIVA',
-      atuantes: at.atuantes || tecNomeFinal || ''
-    }));
-
-    const auxNome = extraIntegrantes.filter(m => m.papel === 'Auxiliar').map(m => m.nome).join(', ') || auxiliar;
-    const motNome = extraIntegrantes.filter(m => m.papel === 'Motorista').map(m => m.nome).join(', ') || motorista;
-
-    const reportData: Report = {
-      id: forcedReportId || activeReportId || `rep-${Date.now()}`,
-      dateStart,
-      dateEnd,
-      team,
-      shift,
-      frente,
-      tecnicoNome: tecNomeFinal,
-      tecnicoFuncao,
-      tecnicoMatricula,
-      tecnicoGrupo,
-      eletricista: tecnicoFuncao === 'Eletricista' ? tecNomeFinal : (eletricista || ''),
-      mecanico: tecnicoFuncao === 'Mecânico' ? tecNomeFinal : (mecanico || ''),
-      auxiliar: auxNome,
-      motorista: motNome,
-      monitor: tecnicoFuncao === 'Monitor' ? tecNomeFinal : monitor,
-      equipeDetalhada: extraIntegrantes.map(m => ({
-        nome: m.nome,
-        matricula: m.matricula,
-        funcao: m.funcao,
-        papel: m.papel
-      })),
-      atendimentos: sanitizedAtendimentos,
-      pendencias,
-      observacoesGerais,
+    const reportData = buildReportObject(
       status,
-      mechanicUsername: user.username,
-      createdAt: new Date().toISOString()
-    };
+      listaAtendimentos,
+      forcedReportId,
+      forcedTecnicoNome
+    );
 
     onSaveReport(reportData, false);
 
     if (status === 'ENVIADO') {
       setShowSubmitModal(true);
       handleResetForm();
+      setActiveTab('painel');
     } else {
       setActiveReportId(reportData.id);
     }
@@ -912,45 +1259,37 @@ export function MechanicView({
     setTimeout(() => {
       setIsSaving(false);
       skipAutoSaveRef.current = false;
-    }, 1500);
+    }, 1000);
   };
 
-  // Helper to submit or save as draft
-  const handleSave = (status: 'RASCUNHO' | 'ENVIADO') => {
-    if (status === 'ENVIADO') {
-      for (let i = 0; i < atendimentos.length; i++) {
-        const at = atendimentos[i];
-        if (!at.equipamento.trim()) continue;
-        const temCat = Boolean(perfilDaTag(at.equipamento) || precisaEscolherPerfilCR(at.equipamento));
-        if (temCat && !at.falha) {
-          alert(`Equipamento #${i + 1} (${normalizarTag(at.equipamento)}): Selecione Sistema › Componente › Sintoma no Catálogo de Falhas antes de enviar o relatório.`);
-          return;
-        }
-      }
-    }
-    handleSaveWithCustomAtendimentos(status, atendimentos);
+  const handleSalvarRascunhoManual = () => {
+    handleSaveWithCustomAtendimentos('RASCUNHO', atendimentos);
   };
 
-  // Filter My reports (made by this operator username)
-  const myReports = reports.filter(r => r.mechanicUsername === user.username);
+  // Relatórios deste perfil/usuário (enviados e rascunhos)
+  const myReports = useMemo(() => {
+    return reports.filter((r) => r.mechanicUsername === user.username);
+  }, [reports, user.username]);
 
-  // Atendimento atual no formulário correspondente à parada sendo finalizada (para upload de fotos no modal)
   const atendimentoDaParadaFinalizando = useMemo(() => {
-    if (!finalizandoParada) return null;
-    return atendimentos.find(a => normalizarTag(a.equipamento) === normalizarTag(finalizandoParada.tag)) || null;
-  }, [finalizandoParada, atendimentos]);
+    if (!finalizandoParada) return atendimentoAtual;
+    return (
+      atendimentos.find(
+        (a) => normalizarTag(a.equipamento) === normalizarTag(finalizandoParada.tag)
+      ) || atendimentoAtual
+    );
+  }, [finalizandoParada, atendimentos, atendimentoAtual]);
 
   return (
-    <div className="max-w-4xl mx-auto px-4 pt-6 select-none">
-      
-      {/* Header - Compact and aesthetic */}
-      <div className="flex justify-between items-center mb-6 border-b border-gray-150 pb-4">
+    <div className="max-w-5xl mx-auto px-4 pt-5 select-none">
+      {/* Cabeçalho Compacto */}
+      <div className="flex justify-between items-center mb-5 border-b border-gray-200 pb-3.5">
         <div>
           <h2 className="text-lg font-black text-emerald-950 uppercase tracking-tight">
-            RELATÓRIO DE MANUTENÇÃO
+            PAINEL DE MANUTENÇÃO • CONTROLE
           </h2>
           <p className="text-[10px] text-gray-500 font-extrabold uppercase tracking-widest mt-0.5">
-            U&M MINERAÇÃO • PERFIL CONTROLE / TÉCNICO
+            U&M MINERAÇÃO • PERFIL TÉCNICO / CONTROLE DE CAMPO
           </p>
         </div>
         {isOffline && (
@@ -960,22 +1299,41 @@ export function MechanicView({
         )}
       </div>
 
-      {activeTab === 'history' ? (
-        // HISTORY VIEW LIST
-        <div className="space-y-4 pb-48">
-          <h3 className="text-sm font-extrabold text-emerald-950 uppercase tracking-wider mb-2">
-            Meus Relatórios de Manutenção U&M
-          </h3>
-          
+      {/* =========================================================================
+          ABA 1: MEUS RELATÓRIOS (B4)
+          ========================================================================= */}
+      {activeTab === 'meus_relatorios' && (
+        <div className="space-y-4 pb-36">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-extrabold text-emerald-950 uppercase tracking-wider">
+                Meus Relatórios Enviados e Rascunhos
+              </h3>
+              <p className="text-xs text-gray-500">
+                Toque em um rascunho para retomar o preenchimento ou consulte os relatórios já enviados.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab('painel')}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#19502F] text-white text-xs font-bold uppercase rounded-xl cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" /> Voltar ao Painel
+            </button>
+          </div>
+
           {myReports.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-gray-150 p-8 text-center">
+            <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center">
               <FileSpreadsheet className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-sm text-gray-500 font-semibold uppercase">Nenhum relatório encontrado</p>
+              <p className="text-sm text-gray-500 font-semibold uppercase">
+                Nenhum relatório ou rascunho encontrado neste aparelho
+              </p>
               <button
-                onClick={() => setActiveTab('form')}
-                className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-900 text-white text-xs font-bold rounded-xl cursor-pointer"
+                type="button"
+                onClick={() => setActiveTab('painel')}
+                className="mt-4 inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#19502F] text-white text-xs font-bold uppercase rounded-xl cursor-pointer"
               >
-                <Plus className="w-4 h-4" /> COMEÇAR NOVO
+                Ir para Paradas Aguardando Atendimento
               </button>
             </div>
           ) : (
@@ -993,14 +1351,17 @@ export function MechanicView({
             </div>
           )}
         </div>
-      ) : (
-        // FORM VIEWER & WRITER
-        <div className="space-y-6 pb-48">
+      )}
 
-          {/* =====================================================================
-              0 - SEÇÃO: PARADAS AGUARDANDO ATENDIMENTO (ANTES DO FORMULÁRIO)
-              ===================================================================== */}
-          <div className="bg-white rounded-2xl border-2 border-[#19502F]/25 shadow-sm overflow-hidden">
+      {/* =========================================================================
+          ABA 2: TELA INICIAL "PAINEL" (PARTE B: B1 + B2 + B3)
+          ========================================================================= */}
+      {activeTab === 'painel' && (
+        <div className="space-y-6 pb-36">
+          {/* ---------------------------------------------------------------------
+              B1. PARADAS AGUARDANDO ATENDIMENTO
+              --------------------------------------------------------------------- */}
+          <section className="bg-white rounded-2xl border-2 border-[#19502F]/25 shadow-sm overflow-hidden">
             <div className="bg-[#19502F] px-5 py-4 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
@@ -1013,14 +1374,20 @@ export function MechanicView({
                   </span>
                 </div>
                 <p className="text-[11px] text-emerald-100/90 mt-0.5">
-                  Assuma uma parada já aberta pelo Admin ou abra uma nova parada caso o equipamento não esteja na lista.
+                  Toque em "INICIAR ATENDIMENTO" em um card abaixo ou abra uma nova parada se o equipamento não estiver na lista.
                 </p>
               </div>
 
               <button
                 type="button"
                 onClick={() => {
-                  setNovaParadaHoraReal(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false }));
+                  setNovaParadaHoraReal(
+                    new Date().toLocaleTimeString('pt-BR', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: false
+                    })
+                  );
                   setShowNovaParadaModal(true);
                 }}
                 className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-emerald-950 font-black text-xs uppercase tracking-wider rounded-xl shadow-sm transition cursor-pointer shrink-0"
@@ -1030,9 +1397,8 @@ export function MechanicView({
               </button>
             </div>
 
-            {/* BARRA DE FILTROS: FRENTE (EH, CR, PF, INFRA) E BUSCA POR TAG */}
+            {/* Filtros por Frente e Busca por TAG */}
             <div className="p-4 bg-gray-50 border-b border-gray-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-              {/* Filtro por Frente */}
               <div className="flex items-center gap-1.5 flex-wrap">
                 {(['TODAS', 'EH', 'CR', 'PF', 'INFRA'] as const).map((fr) => (
                   <button
@@ -1050,7 +1416,6 @@ export function MechanicView({
                 ))}
               </div>
 
-              {/* Busca por TAG */}
               <div className="relative min-w-[220px]">
                 <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
@@ -1064,7 +1429,7 @@ export function MechanicView({
                   <button
                     type="button"
                     onClick={() => setFiltroTagParada('')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 text-xs"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 text-xs cursor-pointer"
                   >
                     ✕
                   </button>
@@ -1072,7 +1437,7 @@ export function MechanicView({
               </div>
             </div>
 
-            {/* LISTA DE CARDS DAS PARADAS ABERTAS */}
+            {/* Cards das Paradas Abertas */}
             <div className="p-4">
               {paradasAbertasFiltradas.length === 0 ? (
                 <div className="text-center py-8 bg-gray-50/60 rounded-2xl border border-dashed border-gray-250 p-6">
@@ -1081,7 +1446,7 @@ export function MechanicView({
                     Nenhuma parada aberta encontrada para este filtro
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
-                    Se o equipamento parou em campo e ainda não consta na lista, clique em "ABRIR NOVA PARADA".
+                    Se o equipamento parou em campo e ainda não consta na lista, toque em "ABRIR NOVA PARADA".
                   </p>
                 </div>
               ) : (
@@ -1093,15 +1458,9 @@ export function MechanicView({
                     const emAtendimento = !!parada.emAtendimentoPor;
                     const estaPausado = !!parada.emAtendimentoPor?.pausadoEm;
                     const isHighlighted = highlightParadaId === parada.id;
-                    const isActiveCard = activeParada?.id === parada.id;
-
-                    // Verifica se o técnico selecionado já faz parte da equipe desta parada
-                    const tecAtualNome = tecnicoNome.trim().toLowerCase();
-                    const tecJaNaParada =
-                      emAtendimento &&
-                      tecAtualNome !== '' &&
-                      (parada.emAtendimentoPor?.tecnicoPrincipal.nome.toLowerCase() === tecAtualNome ||
-                        (parada.emAtendimentoPor?.membrosEquipe || []).some(m => m.nome.toLowerCase() === tecAtualNome));
+                    const isMeuAtendimento = meusAtendimentosEmAndamento.some(
+                      (m) => m.id === parada.id
+                    );
 
                     return (
                       <div
@@ -1110,13 +1469,12 @@ export function MechanicView({
                         className={`rounded-2xl border-2 p-4 transition-all flex flex-col justify-between bg-white shadow-xs ${
                           isHighlighted
                             ? 'border-amber-500 ring-4 ring-amber-400/30 animate-pulse'
-                            : isActiveCard || tecJaNaParada
+                            : isMeuAtendimento
                             ? 'border-blue-600 bg-blue-50/10'
                             : 'border-gray-200 hover:border-[#19502F]'
                         }`}
                       >
                         <div>
-                          {/* Topo do Card: TAG, Frente e Tempo Parado */}
                           <div className="flex items-start justify-between gap-2 pb-3 border-b border-gray-150">
                             <div>
                               <div className="flex items-center gap-2 flex-wrap">
@@ -1134,7 +1492,9 @@ export function MechanicView({
                               </div>
                               <p className="text-[11px] text-gray-500 font-semibold mt-1">
                                 Aberta por <strong className="text-gray-800">{parada.criadoPor || 'Admin'}</strong> • Parou às{' '}
-                                <strong className="text-gray-900 font-mono">{formatarHoraPtBr(parada.inicioParada)}</strong>
+                                <strong className="text-gray-900 font-mono">
+                                  {formatarHoraPtBr(parada.inicioParada)}
+                                </strong>
                               </p>
                             </div>
 
@@ -1146,7 +1506,7 @@ export function MechanicView({
                             </div>
                           </div>
 
-                          {/* Status Atual (Código e Nome) */}
+                          {/* Status atual */}
                           <div
                             className="my-3 p-3 rounded-xl border"
                             style={{ backgroundColor: respStyle.fundo, borderColor: respStyle.borda }}
@@ -1173,23 +1533,32 @@ export function MechanicView({
                             </div>
 
                             {formatarFalhaCard(parada.falha, parada.sintomaInicial) && (
-                              <p className="text-[11px] mt-1.5 font-medium opacity-90 flex items-center gap-1.5 flex-wrap" style={{ color: respStyle.texto }}>
+                              <p
+                                className="text-[11px] mt-1.5 font-medium opacity-90 flex items-center gap-1.5 flex-wrap"
+                                style={{ color: respStyle.texto }}
+                              >
                                 {parada.falha?.codigoCompleto && (
                                   <span className="font-mono text-[10px] px-1.5 py-0.2 rounded bg-black/10 font-black">
                                     {parada.falha.codigoCompleto}
                                   </span>
                                 )}
-                                <span>Sintoma: <strong>{formatarFalhaCard(parada.falha, parada.sintomaInicial)}</strong></span>
+                                <span>
+                                  Sintoma:{' '}
+                                  <strong>{formatarFalhaCard(parada.falha, parada.sintomaInicial)}</strong>
+                                </span>
                               </p>
                             )}
 
-                            {/* Indicação de quem está em atendimento */}
                             {emAtendimento && parada.emAtendimentoPor && (
-                              <div className="mt-2 pt-2 border-t border-black/10 text-[11px] font-bold flex flex-col gap-0.5" style={{ color: respStyle.texto }}>
+                              <div
+                                className="mt-2 pt-2 border-t border-black/10 text-[11px] font-bold flex flex-col gap-0.5"
+                                style={{ color: respStyle.texto }}
+                              >
                                 <div className="flex items-center justify-between">
                                   <span className="flex items-center gap-1">
                                     <Wrench className="w-3.5 h-3.5 shrink-0" />
-                                    Em atendimento por <strong>{parada.emAtendimentoPor.tecnicoPrincipal.nome}</strong> desde{' '}
+                                    Em atendimento por{' '}
+                                    <strong>{parada.emAtendimentoPor.tecnicoPrincipal.nome}</strong> desde{' '}
                                     {formatarHoraPtBr(parada.emAtendimentoPor.inicioAtendimento)}
                                   </span>
                                   {estaPausado && (
@@ -1198,32 +1567,44 @@ export function MechanicView({
                                     </span>
                                   )}
                                 </div>
-                                {parada.emAtendimentoPor.membrosEquipe && parada.emAtendimentoPor.membrosEquipe.length > 0 && (
-                                  <span className="text-[10px] opacity-85">
-                                    Equipe: {parada.emAtendimentoPor.membrosEquipe.map(m => m.nome).join(', ')}
-                                  </span>
-                                )}
+                                {parada.emAtendimentoPor.membrosEquipe &&
+                                  parada.emAtendimentoPor.membrosEquipe.length > 0 && (
+                                    <span className="text-[10px] opacity-85">
+                                      Equipe:{' '}
+                                      {parada.emAtendimentoPor.membrosEquipe.map((m) => m.nome).join(', ')}
+                                    </span>
+                                  )}
                               </div>
                             )}
                           </div>
 
-                          {/* Resumo somente-leitura dos períodos anteriores (Regra 6: técnico não edita/apaga períodos anteriores) */}
+                          {/* Histórico resumido somente leitura */}
                           <div className="mb-3 bg-gray-50 rounded-xl p-2.5 border border-gray-150">
                             <span className="block text-[9px] font-extrabold text-gray-400 uppercase tracking-wider mb-1">
                               Histórico da Parada (Somente Leitura • {parada.segmentos.length} período(s))
                             </span>
-                            <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
+                            <div className="space-y-1 max-h-20 overflow-y-auto pr-1">
                               {parada.segmentos.map((s, sIdx) => {
                                 const iniStr = formatarHoraPtBr(s.inicio);
                                 const fimStr = s.fim ? formatarHoraPtBr(s.fim) : 'agora';
                                 const durSeg = Math.max(
                                   0,
-                                  Math.round(((s.fim ? new Date(s.fim).getTime() : liveNow) - new Date(s.inicio).getTime()) / 60000)
+                                  Math.round(
+                                    ((s.fim ? new Date(s.fim).getTime() : liveNow) -
+                                      new Date(s.inicio).getTime()) /
+                                      60000
+                                  )
                                 );
                                 return (
-                                  <div key={s.id || sIdx} className="text-[10px] font-mono text-gray-600 flex items-center justify-between">
+                                  <div
+                                    key={s.id || sIdx}
+                                    className="text-[10px] font-mono text-gray-600 flex items-center justify-between"
+                                  >
                                     <span className="truncate">
-                                      <strong>{iniStr}–{fimStr}</strong> {s.codigo} {s.nome}
+                                      <strong>
+                                        {iniStr}–{fimStr}
+                                      </strong>{' '}
+                                      {s.codigo} {s.nome}
                                     </span>
                                     <span className="text-gray-400 shrink-0 ml-2">({durSeg} min)</span>
                                   </div>
@@ -1233,20 +1614,27 @@ export function MechanicView({
                           </div>
                         </div>
 
-                        {/* BOTÕES DE AÇÃO DO CARD */}
+                        {/* Botões do card */}
                         <div className="pt-2 border-t border-gray-150 flex flex-col gap-2">
                           {!emAtendimento ? (
                             <button
                               type="button"
                               onClick={() => handleAbrirModalIniciar(parada)}
-                              className="w-full py-3 px-4 bg-[#19502F] hover:bg-emerald-950 text-white font-black text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
+                              className="w-full py-3.5 px-4 bg-[#19502F] hover:bg-emerald-950 text-white font-black text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
                             >
                               <Play className="w-4 h-4 fill-current" />
                               <span>INICIAR ATENDIMENTO</span>
                             </button>
                           ) : (
                             <div className="space-y-2">
-                              {/* Controles de PAUSAR / RETOMAR e FINALIZAR para a parada em atendimento */}
+                              <button
+                                type="button"
+                                onClick={() => handleContinuarAtendimentoParada(parada)}
+                                className="w-full py-3 px-4 bg-[#19502F] hover:bg-emerald-950 text-white font-black text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
+                              >
+                                <ClipboardList className="w-4 h-4" />
+                                <span>CONTINUAR RELATÓRIO</span>
+                              </button>
                               <div className="grid grid-cols-2 gap-2">
                                 {!estaPausado ? (
                                   <button
@@ -1271,24 +1659,21 @@ export function MechanicView({
                                 <button
                                   type="button"
                                   onClick={() => handleAbrirModalFinalizar(parada)}
-                                  className="py-2.5 px-3 bg-[#19502F] hover:bg-emerald-950 text-white font-black text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-1.5 shadow-2xs transition cursor-pointer"
+                                  className="py-2.5 px-3 bg-emerald-800 hover:bg-emerald-950 text-white font-black text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-1.5 shadow-2xs transition cursor-pointer"
                                 >
                                   <CheckCircle2 className="w-4 h-4" />
                                   <span>FINALIZAR</span>
                                 </button>
                               </div>
 
-                              {/* Se um segundo técnico quiser assumir/entrar na mesma parada, entra como membro da equipe sem duplicar */}
-                              {!tecJaNaParada && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleAbrirModalIniciar(parada)}
-                                  className="w-full py-2 px-3 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold text-[11px] uppercase tracking-wider rounded-xl flex items-center justify-center gap-1.5 border border-gray-300 transition cursor-pointer"
-                                >
-                                  <Users className="w-3.5 h-3.5 text-[#19502F]" />
-                                  <span>Iniciar / Entrar como 2º Técnico na Equipe</span>
-                                </button>
-                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleAbrirModalIniciar(parada)}
+                                className="w-full py-2 px-3 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold text-[11px] uppercase tracking-wider rounded-xl flex items-center justify-center gap-1.5 border border-gray-300 transition cursor-pointer"
+                              >
+                                <Users className="w-3.5 h-3.5 text-[#19502F]" />
+                                <span>Entrar como 2º Técnico na Equipe</span>
+                              </button>
                             </div>
                           )}
                         </div>
@@ -1298,761 +1683,735 @@ export function MechanicView({
                 </div>
               )}
             </div>
-          </div>
+          </section>
 
-          {/* 1 - DADOS DO TURNO E IDENTIFICAÇÃO DO TÉCNICO (UNIFICADO) */}
-          <div className="bg-white rounded-2xl border border-gray-150 shadow-sm overflow-hidden">
-            <div className="bg-emerald-900 px-5 py-4 text-white flex items-center justify-between">
-              <h3 className="font-extrabold text-sm uppercase tracking-wider flex items-center gap-2">
-                <Calendar className="w-4 h-4" />
-                1 - CABEÇALHO DO TURNO E IDENTIFICAÇÃO DO TÉCNICO
-              </h3>
-              {tecnicoNome && (
-                <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-emerald-800 text-emerald-100 border border-emerald-700">
-                  {tecnicoFuncao}: {tecnicoNome}
-                </span>
-              )}
-            </div>
-            
-            <div className="p-5 space-y-5">
-              {/* Seleção do Técnico Responsável (Aba de Rolagem) */}
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <UserIcon className="w-3.5 h-3.5 text-emerald-800" />
-                    Técnico Responsável *
+          {/* ---------------------------------------------------------------------
+              B2. MEUS ATENDIMENTOS EM ANDAMENTO (só aparece se houver algum)
+              --------------------------------------------------------------------- */}
+          {meusAtendimentosEmAndamento.length > 0 && (
+            <section className="bg-white rounded-2xl border-2 border-blue-600/35 shadow-sm overflow-hidden">
+              <div className="bg-blue-900 px-5 py-3.5 text-white flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Wrench className="w-4 h-4 text-blue-200" />
+                  <h3 className="font-extrabold text-sm uppercase tracking-wider">
+                    MEUS ATENDIMENTOS EM ANDAMENTO
+                  </h3>
+                  <span className="bg-blue-950 text-blue-100 text-xs font-black px-2.5 py-0.5 rounded-full border border-blue-700">
+                    {meusAtendimentosEmAndamento.length}
                   </span>
-                  <span className="text-[10px] text-gray-400 font-semibold lowercase">aba de rolagem</span>
-                </label>
-                
-                <TechnicianScrollSelector
-                  tecnicos={tecnicos}
-                  selectedNome={tecnicoNome}
-                  selectedFuncao={tecnicoFuncao}
-                  selectedMatricula={tecnicoMatricula}
-                  selectedGrupo={tecnicoGrupo}
-                  isAdmin={user.role === 'admin'}
-                  label="TÉCNICO RESPONSÁVEL"
-                  onChange={(nome, funcao, matricula, grupo) => {
-                    setTecnicoNome(nome);
-                    setTecnicoFuncao(funcao);
-                    setTecnicoMatricula(matricula || '');
-                    setTecnicoGrupo(grupo || '');
-                  }}
-                />
+                </div>
+                <span className="text-[11px] text-blue-100 hidden sm:inline">
+                  Rascunho salvo automaticamente neste aparelho
+                </span>
               </div>
 
-              {/* Opção para adicionar outros membros da equipe */}
-              <div className="pt-0.5">
-                <button
-                  type="button"
-                  onClick={() => setShowExtraEquipe(!showExtraEquipe)}
-                  className="text-[11px] font-bold text-gray-500 hover:text-emerald-800 flex items-center gap-1 transition cursor-pointer"
-                >
-                  <span>{showExtraEquipe ? '▼ Ocultar membros adicionais da equipe' : '▶ Adicionar outros membros da equipe (opcional)'}</span>
-                </button>
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                {meusAtendimentosEmAndamento.map((parada) => {
+                  const segAtual = getSegmentoAtual(parada);
+                  const estaPausado = !!parada.emAtendimentoPor?.pausadoEm;
+                  const inicioAtendIso =
+                    parada.emAtendimentoPor?.inicioAtendimento || parada.inicioParada;
+                  const minEmAtend = Math.max(
+                    0,
+                    Math.round((liveNow - new Date(inicioAtendIso).getTime()) / 60000)
+                  );
+                  const tecnicosList = [
+                    parada.emAtendimentoPor?.tecnicoPrincipal.nome,
+                    ...(parada.emAtendimentoPor?.membrosEquipe || []).map((m) => m.nome)
+                  ]
+                    .filter(Boolean)
+                    .join(', ');
 
-                {showExtraEquipe && (
-                  <div className="mt-2.5 p-3.5 bg-gray-50 rounded-2xl border border-gray-200 space-y-3 animate-in fade-in duration-200">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-extrabold text-gray-700 uppercase tracking-wider">
-                        Integrantes Adicionais ({extraIntegrantes.length})
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setExtraIntegrantes([
-                            ...extraIntegrantes,
-                            {
-                              id: `int-${Date.now()}-${Math.random()}`,
-                              nome: '',
-                              funcao: 'Auxiliar',
-                              matricula: '',
-                              papel: 'Auxiliar'
-                            }
-                          ]);
-                        }}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-extrabold bg-[#19502F] text-white rounded-lg hover:bg-[#143f25] transition cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Adicionar Integrante
-                      </button>
-                    </div>
-
-                    {extraIntegrantes.length === 0 ? (
-                      <p className="text-xs text-gray-400 italic py-1">
-                        Nenhum integrante adicional adicionado. Clique no botão acima para adicionar da base de técnicos cadastrados.
-                      </p>
-                    ) : (
-                      <div className="space-y-2.5">
-                        {extraIntegrantes.map((membro, mIdx) => (
-                          <div key={membro.id} className="p-3 bg-white border border-gray-200 rounded-xl space-y-2">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
-                                Integrante #{mIdx + 1}
-                              </span>
-                              <div className="flex items-center gap-2">
-                                <select
-                                  value={membro.papel}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    setExtraIntegrantes(extraIntegrantes.map(m => m.id === membro.id ? { ...m, papel: val } : m));
-                                  }}
-                                  className="text-xs font-bold border border-gray-250 rounded-lg px-2 py-1 bg-gray-50 text-gray-800 focus:outline-none focus:ring-1 focus:ring-[#19502F]"
-                                >
-                                  <option value="Auxiliar">Papel: Auxiliar</option>
-                                  <option value="Mecânico Apoio">Papel: Mecânico Apoio</option>
-                                  <option value="Eletricista Apoio">Papel: Eletricista Apoio</option>
-                                  <option value="Soldador">Papel: Soldador</option>
-                                  <option value="Motorista">Papel: Motorista</option>
-                                  <option value="Outro">Papel: Outro</option>
-                                </select>
-                                <button
-                                  type="button"
-                                  onClick={() => setExtraIntegrantes(extraIntegrantes.filter(m => m.id !== membro.id))}
-                                  className="text-rose-600 hover:text-rose-800 p-1 rounded-lg hover:bg-rose-50 transition cursor-pointer"
-                                  title="Remover integrante"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </div>
-                            <TechnicianScrollSelector
-                              tecnicos={tecnicos}
-                              selectedNome={membro.nome}
-                              selectedFuncao={membro.funcao}
-                              selectedMatricula={membro.matricula}
-                              isAdmin={user.role === 'admin'}
-                              label="SELECIONAR INTEGRANTE DA BASE"
-                              placeholder="Pesquisar integrante cadastrado..."
-                              onChange={(nome, funcao, matricula) => {
-                                setExtraIntegrantes(extraIntegrantes.map(m => m.id === membro.id ? {
-                                  ...m,
-                                  nome,
-                                  funcao,
-                                  matricula: matricula || ''
-                                } : m));
-                              }}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Linha Divisória */}
-              <div className="border-t border-gray-150 pt-4 space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">
-                      Data Inicial
-                    </label>
-                    <input
-                      type="date"
-                      value={dateStart}
-                      onChange={(e) => setDateStart(e.target.value)}
-                      className="block w-full px-3 py-3 border border-gray-250 rounded-xl bg-gray-55 focus:bg-white text-gray-900 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-800 focus:border-transparent transition-all"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">
-                      Data Final
-                    </label>
-                    <input
-                      type="date"
-                      value={dateEnd}
-                      onChange={(e) => setDateEnd(e.target.value)}
-                      className="block w-full px-3 py-3 border border-gray-250 rounded-xl bg-gray-55 focus:bg-white text-gray-900 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-800 focus:border-transparent transition-all"
-                    />
-                  </div>
-                </div>
-
-                {/* Turma options */}
-                <div>
-                  <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">
-                    Turma
-                  </label>
-                  <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
-                    {['A', 'B', 'C', 'D', 'ADM', '1/3', '2/3'].map((opt) => (
-                      <button
-                        key={opt}
-                        type="button"
-                        onClick={() => setTeam(opt)}
-                        className={`py-3 text-xs font-extrabold rounded-xl text-center border transition-all cursor-pointer ${
-                          team === opt
-                            ? 'bg-emerald-900 border-transparent text-white shadow-xs'
-                            : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
-                        }`}
-                      >
-                        {opt}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Horário Shift options */}
-                <div>
-                  <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">
-                    Horário
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {['18:00 às 06:00', '06:00 às 18:00', '07:00 às 17:00 (ADM)'].map((opt) => (
-                      <button
-                        key={opt}
-                        type="button"
-                        onClick={() => setShift(opt)}
-                        className={`py-3.5 px-2 text-xs font-extrabold rounded-xl text-center border transition-all cursor-pointer ${
-                          shift === opt
-                            ? 'bg-emerald-900 border-transparent text-white shadow-xs'
-                            : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
-                        }`}
-                      >
-                        {opt}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Frente options */}
-                <div>
-                  <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">
-                    Frente
-                  </label>
-                  <div className="grid grid-cols-4 gap-2">
-                    {['EH', 'CR', 'PF', 'INFRA'].map((opt) => (
-                      <button
-                        key={opt}
-                        type="button"
-                        onClick={() => setFrente(opt)}
-                        className={`py-3.5 text-xs font-extrabold rounded-xl text-center border transition-all cursor-pointer ${
-                          frente === opt
-                            ? 'bg-emerald-900 border-transparent text-white shadow-xs'
-                            : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
-                        }`}
-                      >
-                        {opt}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-            </div>
-          </div>
-
-          {/* 2 - EQUIPAMENTOS ATENDIDOS */}
-          <div id="secao-equipamentos-atendidos" className="bg-white rounded-2xl border border-gray-150 shadow-sm overflow-hidden">
-            <div className="bg-emerald-900 px-5 py-4 text-white flex justify-between items-center">
-              <h3 className="font-extrabold text-sm uppercase tracking-wider flex items-center gap-2">
-                <Clock className="w-4 h-4" />
-                2 - EQUIPAMENTOS ATENDIDOS
-              </h3>
-              
-              <span className="bg-emerald-950 text-white text-xs font-black px-2.5 py-1 rounded-lg">
-                Qtd: {atendimentos.length}
-              </span>
-            </div>
-
-            <div className="p-5 space-y-6">
-              {atendimentos.map((at, idx) => {
-                // Verifica se este atendimento está ligado a uma Parada ABERTA em andamento
-                const paradaVinculada = paradas.find(
-                  p => p.situacao === 'ABERTA' && normalizarTag(p.tag) === normalizarTag(at.equipamento)
-                );
-                const paradaEmExec = paradaVinculada && !!paradaVinculada.emAtendimentoPor;
-                const paradaPausada = paradaVinculada && !!paradaVinculada.emAtendimentoPor?.pausadoEm;
-
-                return (
-                  <div key={at.id} className="border border-gray-200 bg-gray-50/40 rounded-2xl p-4 relative space-y-4">
-                    {/* Remove action */}
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveAtendimento(at.id)}
-                      className="absolute top-4 right-4 bg-rose-50 text-rose-600 hover:bg-rose-100 p-2 rounded-xl transition cursor-pointer"
-                      title="Remover este equipamento"
+                  return (
+                    <div
+                      key={parada.id}
+                      className="rounded-2xl border-2 border-blue-200 bg-blue-50/20 p-4 flex flex-col justify-between gap-3"
                     >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                      <div>
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xl font-black text-emerald-950 font-mono">
+                                {parada.tag}
+                              </span>
+                              <span className="px-2 py-0.5 text-[10px] font-black uppercase rounded-full bg-emerald-100 text-emerald-900">
+                                {parada.frente}
+                              </span>
+                            </div>
+                            <p className="text-xs font-bold text-gray-700 mt-1">
+                              Status atual:{' '}
+                              <span className="text-blue-900 font-black">
+                                {segAtual.codigo} – {segAtual.nome}
+                              </span>
+                            </p>
+                          </div>
 
-                    <div className="flex items-center justify-between border-b border-gray-150 pb-2 mb-2 pr-12 flex-wrap gap-2">
-                      <h4 className="text-xs font-extrabold text-emerald-800 uppercase tracking-widest">
-                        Equipamento #{idx + 1} {at.equipamento ? `• ${normalizarTag(at.equipamento)}` : ''}
-                      </h4>
-                      {paradaVinculada && (
-                        <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-900 border border-blue-300">
-                          Ligado à Parada #{paradaVinculada.tag} ({getSegmentoAtual(paradaVinculada).codigo})
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Barra rápida de PAUSAR / RETOMAR / FINALIZAR dentro do próprio formulário quando vinculado */}
-                    {paradaVinculada && paradaEmExec && (
-                      <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                        <div className="text-xs text-blue-950">
-                          <span className="font-black uppercase block">
-                            Controle de Tempo da Parada ({paradaVinculada.tag})
-                          </span>
-                          <span className="text-[11px] text-blue-800">
-                            Status atual: <strong>{getSegmentoAtual(paradaVinculada).codigo} – {getSegmentoAtual(paradaVinculada).nome}</strong>
+                          <span className="px-2.5 py-1 rounded-xl bg-blue-100 text-blue-900 border border-blue-300 text-xs font-black font-mono shrink-0">
+                            em atendimento há {formatarParadoHaXhYm(minEmAtend)}
                           </span>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          {!paradaPausada ? (
+
+                        <p className="text-xs text-gray-600 mt-2">
+                          Técnico(s): <strong className="text-gray-900">{tecnicosList}</strong>
+                        </p>
+                      </div>
+
+                      <div className="pt-2 border-t border-blue-200/60 flex flex-col gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleContinuarAtendimentoParada(parada)}
+                          className="w-full py-3 px-4 bg-[#19502F] hover:bg-emerald-950 text-white font-black text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                        >
+                          <ClipboardList className="w-4 h-4" />
+                          <span>CONTINUAR RELATÓRIO</span>
+                        </button>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          {!estaPausado ? (
                             <button
                               type="button"
-                              onClick={() => handleAbrirModalPausar(paradaVinculada)}
-                              className="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-emerald-950 font-black text-xs uppercase rounded-xl flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                              onClick={() => handleAbrirModalPausar(parada)}
+                              className="py-2.5 px-3 bg-amber-500 hover:bg-amber-600 text-emerald-950 font-black text-xs uppercase rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
                             >
-                              <Pause className="w-3.5 h-3.5 fill-current" /> PAUSAR
+                              <Pause className="w-4 h-4 fill-current" />
+                              <span>PAUSAR</span>
                             </button>
                           ) : (
                             <button
                               type="button"
-                              onClick={() => handleAbrirModalRetomar(paradaVinculada)}
-                              className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase rounded-xl flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                              onClick={() => handleAbrirModalRetomar(parada)}
+                              className="py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
                             >
-                              <RotateCcw className="w-3.5 h-3.5" /> RETOMAR
+                              <RotateCcw className="w-4 h-4" />
+                              <span>RETOMAR</span>
                             </button>
                           )}
+
                           <button
                             type="button"
-                            onClick={() => handleAbrirModalFinalizar(paradaVinculada)}
-                            className="px-3 py-2 bg-[#19502F] hover:bg-emerald-950 text-white font-black text-xs uppercase rounded-xl flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                            onClick={() => handleAbrirModalFinalizar(parada)}
+                            className="py-2.5 px-3 bg-emerald-800 hover:bg-emerald-950 text-white font-black text-xs uppercase rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
                           >
-                            <CheckCircle2 className="w-3.5 h-3.5" /> FINALIZAR
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span>FINALIZAR</span>
                           </button>
                         </div>
                       </div>
-                    )}
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      {/* Equipamento */}
-                      <div className="sm:col-span-1">
-                        <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
-                          Equipamento (TAG) *
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          placeholder="Ex: EH-4050"
-                          value={at.equipamento}
-                          onChange={(e) => {
-                            const norm = normalizarTag(e.target.value);
-                            const pVinc = paradas.find(p => p.situacao === 'ABERTA' && normalizarTag(p.tag) === norm);
-                            setAtendimentos(prev =>
-                              prev.map(item => {
-                                if (item.id !== at.id) return item;
-                                const novaFalha = item.falha || pVinc?.falha || null;
-                                const novoSintoma = item.sintoma || (pVinc ? formatarFalhaCard(pVinc.falha, pVinc.sintomaInicial) : '');
-                                return {
-                                  ...item,
-                                  equipamento: norm,
-                                  falha: novaFalha,
-                                  sintoma: novoSintoma
-                                };
-                              })
-                            );
-                          }}
-                          className="block w-full px-3 py-2.5 border border-gray-250 bg-white rounded-xl text-gray-900 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#19502F] transition-all font-mono uppercase"
-                        />
-                        
-                        {/* Suggest preset buttons */}
-                        <div className="flex flex-wrap gap-1 mt-1.5">
-                          {presetEquipments.map((tag) => (
-                            <button
-                              key={tag}
-                              type="button"
-                              onClick={() => handleUpdateAtendimento(at.id, 'equipamento', tag)}
-                              className="bg-gray-100 border border-gray-200 text-gray-700 text-[10px] font-bold px-1.5 py-0.5 rounded-lg hover:bg-emerald-50 hover:text-emerald-800 transition cursor-pointer"
-                            >
-                              {tag}
-                            </button>
-                          ))}
-                        </div>
-
-                        {/* HORA REAL DA PARADA */}
-                        <div className="mt-2.5 pt-2 border-t border-gray-200">
-                          <label className="block text-[10px] font-bold text-gray-700 uppercase tracking-wider mb-1">
-                            Hora Real da Parada
-                          </label>
-                          <input
-                            type="time"
-                            value={at.horaRealParada || ''}
-                            onChange={(e) => handleUpdateAtendimento(at.id, 'horaRealParada', e.target.value)}
-                            placeholder="--:--"
-                            className="block w-full px-2.5 py-1.5 border border-gray-250 bg-white rounded-lg text-gray-900 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#19502F] font-mono"
-                          />
-                          <span className="text-[9px] text-gray-500 block mt-0.5 leading-tight">
-                            Preenchido da Parada ou se parou antes
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* OM e Tipo de Manutenção */}
-                      <div>
-                        <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
-                          Número OM *
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="Ex: 4796854"
-                          value={at.om}
-                          onChange={(e) => handleUpdateAtendimento(at.id, 'om', e.target.value)}
-                          className="block w-full px-3 py-2.5 border border-gray-250 bg-white rounded-xl text-gray-900 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#19502F] transition-all"
-                        />
-
-                        {/* Tipo de Manutenção: 3 Botões de Opção Rápida */}
-                        <div className="mt-2.5 pt-2 border-t border-gray-200">
-                          <label className="block text-[10px] font-bold text-gray-700 uppercase tracking-wider mb-1">
-                            Tipo de Manutenção
-                          </label>
-                          <div className="grid grid-cols-3 gap-1">
-                            {(['CORRETIVA', 'PREVENTIVA', 'PROGRAMADA'] as const).map((tipo) => {
-                              const isSelected = (at.tipoManutencao || 'CORRETIVA') === tipo;
-                              return (
-                                <button
-                                  key={tipo}
-                                  type="button"
-                                  onClick={() => handleUpdateAtendimento(at.id, 'tipoManutencao', tipo)}
-                                  className={`py-1.5 text-[10px] font-bold rounded-lg uppercase tracking-wider text-center transition cursor-pointer ${
-                                    isSelected
-                                      ? 'bg-[#19502F] text-white shadow-xs'
-                                      : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-100'
-                                  }`}
-                                >
-                                  {tipo === 'PROGRAMADA' ? 'PROG.' : tipo}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Horímetro */}
-                      <div>
-                        <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
-                          Horímetro *
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="Ex: 82341.5"
-                          value={at.horimetro}
-                          onChange={(e) => handleUpdateAtendimento(at.id, 'horimetro', e.target.value)}
-                          className="block w-full px-3 py-2.5 border border-gray-250 bg-white rounded-xl text-gray-900 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#19502F] transition-all"
-                        />
-                      </div>
                     </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
 
-                    <div className="space-y-3">
-                      {/* Sintoma com Catálogo de Falhas em Cascata */}
-                      <div>
-                        <SeletorCatalogo
-                          tag={at.equipamento}
-                          value={at.falha || paradaVinculada?.falha || null}
-                          complemento={at.falha ? (at.falha.complemento || '') : (at.sintoma || paradaVinculada?.sintomaInicial || '')}
-                          obrigatorio={true}
-                          isAdmin={user.role === 'admin'}
-                          labelTitulo="SINTOMA (CATÁLOGO DE FALHAS DA TAG)"
-                          onChange={(falha, resumo, comp) => {
-                            setAtendimentos(prev =>
-                              prev.map(item =>
-                                item.id === at.id
-                                  ? {
-                                      ...item,
-                                      falha,
-                                      sintoma: resumo || comp
-                                    }
-                                  : item
-                              )
-                            );
-                          }}
-                        />
-                      </div>
-
-                      {/* Causa */}
-                      <div>
-                        <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
-                          Causa *
-                        </label>
-                        <textarea
-                          rows={2}
-                          placeholder="Ex: Mangueira da bomba P2 danificada ou fadiga..."
-                          value={at.causa}
-                          onChange={(e) => handleUpdateAtendimento(at.id, 'causa', e.target.value)}
-                          className="block w-full px-3 py-2.5 border border-gray-250 bg-white rounded-xl text-gray-900 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#19502F] transition-all"
-                        />
-                      </div>
-
-                      {/* Ação Executada */}
-                      <div>
-                        <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
-                          Ação Executada *
-                        </label>
-                        <textarea
-                          rows={3}
-                          placeholder="Fale detalhadamente sobre a manutenção realizada..."
-                          value={at.acaoExecutada}
-                          onChange={(e) => handleUpdateAtendimento(at.id, 'acaoExecutada', e.target.value)}
-                          className="block w-full px-3 py-2.5 border border-gray-250 bg-white rounded-xl text-gray-900 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#19502F] transition-all"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      {/* Hora Início */}
-                      <div>
-                        <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
-                          Hora Início
-                        </label>
-                        <input
-                          type="time"
-                          placeholder="Ex: 11:10"
-                          value={at.horaInicio}
-                          onChange={(e) => handleUpdateAtendimento(at.id, 'horaInicio', e.target.value)}
-                          className="block w-full px-3 py-2.5 border border-gray-250 bg-white rounded-xl text-gray-900 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#19502F] transition-all font-mono"
-                        />
-                      </div>
-
-                      {/* Hora Fim */}
-                      <div>
-                        <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
-                          Hora Fim
-                        </label>
-                        <input
-                          type="time"
-                          placeholder="Ex: 12:40"
-                          value={at.horaFim}
-                          onChange={(e) => handleUpdateAtendimento(at.id, 'horaFim', e.target.value)}
-                          className="block w-full px-3 py-2.5 border border-gray-250 bg-white rounded-xl text-gray-900 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#19502F] transition-all font-mono"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Previsão de Liberação / Disponibilidade */}
-                    <div>
-                      <label className="block text-[11px] font-bold text-amber-900 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                        <span>⏰ Previsão de Liberação (Opcional - Mostrará no Painel)</span>
-                      </label>
-                      <input
-                        type="datetime-local"
-                        value={at.previsaoLiberacao || ''}
-                        onChange={(e) => handleUpdateAtendimento(at.id, 'previsaoLiberacao', e.target.value)}
-                        className="block w-full px-3 py-2.5 border border-amber-200 bg-amber-50/15 rounded-xl text-gray-900 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-amber-600 transition-all font-mono"
-                      />
-                    </div>
-
-                    {/* Botão de Liberação para Operação */}
-                    <div className="p-3 bg-white border border-gray-250 rounded-xl flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2.5">
-                        <CheckCircle2 className={`w-5 h-5 ${at.liberadoOperacao ? 'text-[#19502F]' : 'text-gray-300'}`} />
-                        <div>
-                          <span className="text-xs font-bold text-gray-900 uppercase tracking-wider block">
-                            Equipamento Liberado para Operação (HOI 5936)
-                          </span>
-                          <span className="text-[10px] text-gray-500">
-                            Ao finalizar, abre HOI 5936 LIBERADO PELA MANUT (Produção).
-                          </span>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateAtendimento(at.id, 'liberadoOperacao', !at.liberadoOperacao)}
-                        className={`px-3.5 py-1.5 text-xs font-bold rounded-lg uppercase tracking-wider transition cursor-pointer ${
-                          at.liberadoOperacao
-                            ? 'bg-[#19502F] text-white shadow-xs'
-                            : 'bg-gray-100 border border-gray-300 text-gray-600 hover:bg-gray-200'
-                        }`}
-                      >
-                        {at.liberadoOperacao ? '✓ LIBERADO' : 'EM ANDAMENTO'}
-                      </button>
-                    </div>
-
-                    {/* Camera / Photo Attachment */}
-                    <div className="pt-2 border-t border-gray-200">
-                      <span className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-2">
-                        Evidências Fotográficas (Múltiplas Fotos Permitidas):
-                      </span>
-                      
-                      <div className="flex flex-col gap-3">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                          <label className="inline-flex items-center justify-center gap-2 px-4 py-3.5 bg-emerald-50 border-2 border-dashed border-emerald-800 text-emerald-900 rounded-xl font-extrabold text-xs uppercase tracking-wider hover:bg-emerald-100 transition cursor-pointer shadow-xs">
-                            <span>📸 TIRAR FOTO (CÂMERA)</span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              capture="environment"
-                              onChange={(e) => {
-                                handleImageUpload(at.id, e.target.files);
-                                e.target.value = '';
-                              }}
-                              className="hidden"
-                            />
-                          </label>
-
-                          <label className="inline-flex items-center justify-center gap-2 px-4 py-3.5 bg-gray-50 border-2 border-dashed border-gray-300 text-gray-700 rounded-xl font-extrabold text-xs uppercase tracking-wider hover:bg-gray-100 transition cursor-pointer shadow-xs">
-                            <span>🖼️ CARREGAR DA GALERIA</span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              multiple
-                              onChange={(e) => {
-                                handleImageUpload(at.id, e.target.files);
-                                e.target.value = '';
-                              }}
-                              className="hidden"
-                            />
-                          </label>
-                        </div>
-
-                        <div className="flex flex-wrap gap-2.5 mt-1">
-                          {((at.photoUrls && at.photoUrls.length > 0) ? at.photoUrls : (at.photoUrl ? [at.photoUrl] : [])).map((pic, picIdx) => (
-                            <div key={picIdx} className="flex flex-col items-center gap-1.5 p-1.5 bg-gray-50 border border-gray-200 rounded-2xl relative group">
-                              <div 
-                                onClick={() => setZoomedImage(pic || null)}
-                                className="relative border border-gray-150 rounded-xl overflow-hidden shadow-xs bg-white cursor-zoom-in max-w-[124px] aspect-square flex items-center justify-center"
-                              >
-                                <img 
-                                  src={pic} 
-                                  alt={`Evidência fotográfica ${picIdx + 1}`} 
-                                  className="h-24 w-24 object-cover group-hover:scale-105 transition duration-200"
-                                  referrerPolicy="no-referrer"
-                                />
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => handleRemovePhoto(at.id, picIdx)}
-                                className="text-[10px] font-bold text-rose-600 hover:text-rose-800 uppercase tracking-wider block text-center w-full py-0.5 cursor-pointer hover:bg-rose-50 rounded-lg transition"
-                              >
-                                Remover
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                  </div>
-                );
-              })}
-
-              <button
-                type="button"
-                onClick={handleAddAtendimento}
-                className="w-full flex justify-center items-center gap-2 py-4 px-4 border-2 border-dashed border-emerald-800/45 text-emerald-900 font-extrabold text-xs tracking-widest uppercase rounded-2xl hover:bg-emerald-50 active:bg-emerald-100/60 transition cursor-pointer"
-              >
-                <Plus className="w-4 h-4" />
-                ➕ ADICIONAR EQUIPAMENTO
-              </button>
-            </div>
-          </div>
-
-          {/* 3 - PENDÊNCIAS */}
-          <div className="bg-white rounded-2xl border border-gray-150 shadow-sm overflow-hidden">
-            <div className="bg-emerald-900 px-5 py-4 text-white flex justify-between items-center">
-              <h3 className="font-extrabold text-sm uppercase tracking-wider flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-300" />
-                3 - PENDÊNCIAS E ANOMALIAS
-              </h3>
-              
-              <span className="bg-emerald-950 text-white text-xs font-black px-2.5 py-1 rounded-lg">
-                Qtd: {pendencias.length}
-              </span>
-            </div>
-
-            <div className="p-5 space-y-6">
-              {pendencias.map((pend, idx) => (
-                <div key={pend.id} className="border border-gray-200 bg-amber-50/10 rounded-2xl p-4 relative space-y-4">
-                  <button
-                    type="button"
-                    onClick={() => handleRemovePendencia(pend.id)}
-                    className="absolute top-4 right-4 bg-rose-50 text-rose-600 hover:bg-rose-100 p-2 rounded-xl transition cursor-pointer"
-                    title="Remover esta pendência"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-
-                  <h4 className="text-xs font-extrabold text-amber-800 uppercase tracking-widest border-b border-gray-150 pb-2 mb-2 pr-10">
-                    Pendência #{idx + 1}
-                  </h4>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-gray-600 uppercase tracking-wider mb-1">
-                      Equipamento *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Ex: EH-5003"
-                      value={pend.equipamento}
-                      onChange={(e) => handleUpdatePendencia(pend.id, 'equipamento', e.target.value)}
-                      className="block w-full px-3 py-2.5 border border-gray-250 bg-white rounded-xl text-gray-900 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-800 transition-all font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-gray-600 uppercase tracking-wider mb-1">
-                      Descrição da Pendência *
-                    </label>
-                    <textarea
-                      rows={3}
-                      placeholder="Ex: Baixando a lança, foi invertido as válvulas porém não performou."
-                      value={pend.descricao}
-                      onChange={(e) => handleUpdatePendencia(pend.id, 'descricao', e.target.value)}
-                      className="block w-full px-3 py-2.5 border border-gray-250 bg-white rounded-xl text-gray-900 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-800 transition-all"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-amber-900 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                      <span>⏰ Previsão de Liberação (Opcional - Mostrará no Painel de Controle)</span>
-                    </label>
-                    <input
-                      type="datetime-local"
-                      value={pend.previsaoLiberacao || ''}
-                      onChange={(e) => handleUpdatePendencia(pend.id, 'previsaoLiberacao', e.target.value)}
-                      className="block w-full px-3 py-2.5 border border-amber-200 bg-amber-50/15 rounded-xl text-gray-900 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-amber-600 transition-all font-mono"
-                    />
-                  </div>
-
-                </div>
-              ))}
-
-              <button
-                type="button"
-                onClick={handleAddPendencia}
-                className="w-full flex justify-center items-center gap-2 py-4 px-4 border-2 border-dashed border-amber-600/45 text-amber-800 font-extrabold text-xs tracking-widest uppercase rounded-2xl hover:bg-amber-50/50 active:bg-amber-100/30 transition cursor-pointer"
-              >
-                <Plus className="w-4 h-4" />
-                ➕ ADICIONAR PENDÊNCIA
-              </button>
-            </div>
-          </div>
-
-          {/* 4 - OBSERVAÇÕES */}
-          <div className="bg-white rounded-2xl border border-gray-150 shadow-sm overflow-hidden">
-            <div className="bg-emerald-900 px-5 py-4 text-white">
-              <h3 className="font-extrabold text-sm uppercase tracking-wider">
-                4 - OBSERVAÇÕES FINAIS
-              </h3>
-            </div>
-            
-            <div className="p-5">
-              <textarea
-                rows={4}
-                placeholder="Insira detalhes adicionais ou considerações gerais que julgar necessárias..."
-                value={observacoesGerais}
-                onChange={(e) => setObservacoesGerais(e.target.value)}
-                className="block w-full px-3 py-3 border border-gray-250 bg-gray-50 focus:bg-white rounded-xl text-gray-900 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-800 transition-all"
-              />
-            </div>
-          </div>
-
+          {/* ---------------------------------------------------------------------
+              B3. RESUMO OPERACIONAL (SOMENTE LEITURA)
+              --------------------------------------------------------------------- */}
+          <ResumoOperacionalControle reports={reports} />
         </div>
       )}
 
       {/* =========================================================================
-          MODAL 1: INICIAR ATENDIMENTO DA PARADA (ITEM 2)
+          ABA 3: TELA "ATENDIMENTO • <TAG>" (PARTE C2)
+          ========================================================================= */}
+      {activeTab === 'atendimento' && atendimentoAtual && (
+        <div className="space-y-5 pb-40">
+          {/* Topo da tela de Atendimento */}
+          <div className="bg-[#19502F] text-white rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setActiveTab('painel')}
+                className="p-2 rounded-xl bg-white/15 hover:bg-white/25 text-white transition cursor-pointer"
+                title="Voltar ao Painel (o rascunho continua salvo)"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <div>
+                <h3 className="text-base font-black uppercase tracking-wider flex items-center gap-2">
+                  <span>ATENDIMENTO • {activeParada?.tag || atendimentoAtual.equipamento}</span>
+                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-200 border border-emerald-700">
+                    {frente}
+                  </span>
+                </h3>
+                <p className="text-[11px] text-emerald-100 mt-0.5">
+                  Preencha apenas os dados que faltam • Rascunho automático ativo
+                  {ultimoAutoSaveHhMm ? ` (salvo às ${ultimoAutoSaveHhMm})` : ''}
+                </p>
+              </div>
+            </div>
+
+            {activeParada && (
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="px-3 py-1 rounded-xl bg-white/15 text-white text-xs font-mono font-bold">
+                  {getSegmentoAtual(activeParada).codigo} – {getSegmentoAtual(activeParada).nome}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* C2.a) CABEÇALHO JÁ PREENCHIDO E TRAVADO (ÍCONE DE CADEADO) */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden">
+            <div className="bg-gray-50 px-5 py-3 border-b border-gray-200 flex items-center justify-between">
+              <span className="text-xs font-extrabold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5 text-[#19502F]" />
+                Dados da Parada e do Turno (Preenchidos Automaticamente)
+              </span>
+              <span className="text-[11px] text-gray-500">
+                Use "corrigir" se precisar ajustar algum item
+              </span>
+            </div>
+
+            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+              {/* TAG, Frente e Perfil do Catálogo */}
+              <div className="p-3 rounded-xl bg-gray-50 border border-gray-200 flex items-start justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1">
+                    <Lock className="w-3 h-3" /> TAG / Frente / Catálogo
+                  </span>
+                  <p className="font-mono font-black text-sm text-gray-900 mt-0.5">
+                    {activeParada?.tag || atendimentoAtual.equipamento} • {frente}
+                  </p>
+                  <span className="text-[11px] text-emerald-800 font-semibold">
+                    Perfil Catálogo: {perfilDaTag(activeParada?.tag || atendimentoAtual.equipamento) || 'Geral'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Hora real da parada, Tempo parado e Status atual */}
+              <div className="p-3 rounded-xl bg-gray-50 border border-gray-200">
+                <span className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1">
+                  <Lock className="w-3 h-3" /> Hora da Parada & Tempo Parado
+                </span>
+                <p className="font-mono font-bold text-gray-900 mt-0.5">
+                  Parou às{' '}
+                  {activeParada
+                    ? formatarHoraPtBr(activeParada.inicioParada)
+                    : atendimentoAtual.horaRealParada || '—'}{' '}
+                  {activeParada && (
+                    <span className="text-rose-700">
+                      ({formatarParadoHaXhYm(calcularDuracaoTotalParadaMinutos(activeParada, liveNow))})
+                    </span>
+                  )}
+                </p>
+                {activeParada && (
+                  <span className="text-[11px] text-gray-600 block mt-0.5">
+                    Status: <strong>{getSegmentoAtual(activeParada).codigo}</strong>
+                  </span>
+                )}
+              </div>
+
+              {/* Nº OM/OS no cabeçalho travado (se a parada já tiver OM/OS) */}
+              {activeParada?.numeroOS && !destravarCabecalho.om && (
+                <div className="p-3 rounded-xl bg-gray-50 border border-gray-200 flex items-start justify-between">
+                  <div>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1">
+                      <Lock className="w-3 h-3" /> Nº OM / OS
+                    </span>
+                    <p className="font-mono font-black text-sm text-gray-900 mt-0.5">
+                      {atendimentoAtual.om || activeParada.numeroOS}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDestravarCabecalho((p) => ({ ...p, om: true }))}
+                    className="text-[11px] text-[#19502F] hover:underline font-bold cursor-pointer"
+                  >
+                    corrigir
+                  </button>
+                </div>
+              )}
+
+              {/* Técnico Responsável e Equipe */}
+              <div className="p-3 rounded-xl bg-gray-50 border border-gray-200 flex items-start justify-between">
+                <div className="min-w-0 pr-2">
+                  <span className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1">
+                    <Lock className="w-3 h-3" /> Técnico Responsável e Equipe
+                  </span>
+                  <p className="font-bold text-gray-900 mt-0.5 truncate">
+                    {tecnicoNome || 'Não informado'}
+                    {tecnicoMatricula ? ` (Mat. ${tecnicoMatricula})` : ''}
+                  </p>
+                  {extraIntegrantes.filter((m) => m.nome).length > 0 && (
+                    <span className="text-[11px] text-gray-600 block truncate">
+                      Equipe: {extraIntegrantes.filter((m) => m.nome).map((m) => m.nome).join(', ')}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDestravarCabecalho((p) => ({ ...p, equipe: !p.equipe }))}
+                  className="text-[11px] text-[#19502F] hover:underline font-bold shrink-0 cursor-pointer"
+                >
+                  {destravarCabecalho.equipe ? 'travar' : 'corrigir'}
+                </button>
+              </div>
+
+              {/* Tipo de Manutenção e Hora de Início */}
+              <div className="p-3 rounded-xl bg-gray-50 border border-gray-200 flex items-start justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1">
+                    <Lock className="w-3 h-3" /> Tipo Manut. & Início Atendimento
+                  </span>
+                  <p className="font-bold text-gray-900 mt-0.5">
+                    {atendimentoAtual.tipoManutencao || 'CORRETIVA'} • Início:{' '}
+                    <span className="font-mono">{atendimentoAtual.horaInicio || '—'}</span>
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDestravarCabecalho((p) => ({
+                      ...p,
+                      tipoManut: !p.tipoManut,
+                      horaInicio: !p.horaInicio
+                    }))
+                  }
+                  className="text-[11px] text-[#19502F] hover:underline font-bold shrink-0 cursor-pointer"
+                >
+                  {destravarCabecalho.tipoManut ? 'travar' : 'corrigir'}
+                </button>
+              </div>
+
+              {/* Data, Turma e Horário/Turno calculado */}
+              <div className="p-3 rounded-xl bg-gray-50 border border-gray-200 flex items-start justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1">
+                    <Lock className="w-3 h-3" /> Data • Turma • Turno
+                  </span>
+                  <p className="font-bold text-gray-900 mt-0.5">
+                    {formatarDataPtBr(dateStart)} • Turma {team}
+                  </p>
+                  <span className="text-[11px] text-gray-600">{shift}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDestravarCabecalho((p) => ({ ...p, dataTurma: !p.dataTurma }))}
+                  className="text-[11px] text-[#19502F] hover:underline font-bold shrink-0 cursor-pointer"
+                >
+                  {destravarCabecalho.dataTurma ? 'travar' : 'corrigir'}
+                </button>
+              </div>
+            </div>
+
+            {/* Painéis de correção pontual (só aparecem se o técnico clicar em "corrigir") */}
+            {(destravarCabecalho.equipe ||
+              destravarCabecalho.tipoManut ||
+              destravarCabecalho.dataTurma) && (
+              <div className="p-4 bg-emerald-50/40 border-t border-gray-200 space-y-4">
+                {destravarCabecalho.equipe && (
+                  <div className="space-y-3">
+                    <label className="block text-xs font-extrabold text-gray-800 uppercase">
+                      Corrigir Técnico Responsável / Equipe
+                    </label>
+                    <SeletorTecnico
+                      tecnicos={tecnicos}
+                      selectedNome={tecnicoNome}
+                      selectedFuncao={tecnicoFuncao}
+                      selectedMatricula={tecnicoMatricula}
+                      selectedGrupo={tecnicoGrupo}
+                      isAdmin={user.role === 'admin'}
+                      label="TÉCNICO RESPONSÁVEL"
+                      onChange={(nome, funcao, matricula, grupo) => {
+                        setTecnicoNome(nome);
+                        setTecnicoFuncao(funcao);
+                        setTecnicoMatricula(matricula || '');
+                        setTecnicoGrupo(grupo || '');
+                      }}
+                    />
+                  </div>
+                )}
+
+                {destravarCabecalho.tipoManut && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-extrabold text-gray-800 uppercase mb-1">
+                        Tipo de Manutenção
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {(['CORRETIVA', 'PREVENTIVA', 'PROGRAMADA'] as const).map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() =>
+                              handleUpdateAtendimento(atendimentoAtual.id, 'tipoManutencao', t)
+                            }
+                            className={`py-2 text-xs font-bold rounded-xl border cursor-pointer ${
+                              (atendimentoAtual.tipoManutencao || 'CORRETIVA') === t
+                                ? 'bg-[#19502F] text-white border-[#19502F]'
+                                : 'bg-white text-gray-700 border-gray-300'
+                            }`}
+                          >
+                            {t}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-extrabold text-gray-800 uppercase mb-1">
+                        Hora de Início do Atendimento
+                      </label>
+                      <input
+                        type="time"
+                        value={atendimentoAtual.horaInicio}
+                        onChange={(e) => {
+                          const h = e.target.value;
+                          handleUpdateAtendimento(atendimentoAtual.id, 'horaInicio', h);
+                          setShift(calcularTurnoPelaHoraETurma(h, team));
+                        }}
+                        className="w-full px-3 py-2 bg-white border border-gray-300 rounded-xl text-sm font-mono font-bold"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {destravarCabecalho.dataTurma && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-extrabold text-gray-800 uppercase mb-1">
+                        Data
+                      </label>
+                      <input
+                        type="date"
+                        value={dateStart}
+                        onChange={(e) => {
+                          setDateStart(e.target.value);
+                          setDateEnd(e.target.value);
+                        }}
+                        className="w-full px-3 py-2 bg-white border border-gray-300 rounded-xl text-xs font-bold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-extrabold text-gray-800 uppercase mb-1">
+                        Turma
+                      </label>
+                      <select
+                        value={team}
+                        onChange={(e) => {
+                          const novaT = e.target.value;
+                          setTeam(novaT);
+                          setShift(calcularTurnoPelaHoraETurma(atendimentoAtual.horaInicio, novaT));
+                          try {
+                            localStorage.setItem(ULTIMA_TURMA_KEY, novaT);
+                          } catch {}
+                        }}
+                        className="w-full px-3 py-2 bg-white border border-gray-300 rounded-xl text-xs font-bold"
+                      >
+                        {['A', 'B', 'C', 'D', 'ADM', '1/3', '2/3'].map((opt) => (
+                          <option key={opt} value={opt}>
+                            Turma {opt}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-extrabold text-gray-800 uppercase mb-1">
+                        Horário / Turno
+                      </label>
+                      <select
+                        value={shift}
+                        onChange={(e) => setShift(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-gray-300 rounded-xl text-xs font-bold"
+                      >
+                        {['06:00 às 18:00', '18:00 às 06:00', '07:00 às 17:00 (ADM)'].map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* C2.b) CAMPOS PARA PREENCHER (MOSTRAR APENAS O QUE AINDA FALTA NA PARADA) */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-xs p-5 space-y-5">
+            <h4 className="text-xs font-black text-[#19502F] uppercase tracking-wider border-b border-gray-150 pb-2.5">
+              Dados Técnicos do Atendimento (Preencha o que falta)
+            </h4>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Nº OM/OS – só aparece aqui se a parada ainda não tiver OM/OS (ou se destravou para corrigir) */}
+              {(!activeParada?.numeroOS || destravarCabecalho.om) && (
+                <div>
+                  <label className="block text-xs font-extrabold text-gray-800 uppercase tracking-wider mb-1">
+                    Nº OM / OS
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: 4796854"
+                    value={atendimentoAtual.om}
+                    onChange={(e) =>
+                      handleUpdateAtendimento(atendimentoAtual.id, 'om', e.target.value)
+                    }
+                    className="w-full px-3.5 py-3 border border-gray-300 bg-white rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#19502F]"
+                  />
+                </div>
+              )}
+
+              {/* Horímetro (Obrigatório) */}
+              <div className={!activeParada?.numeroOS || destravarCabecalho.om ? '' : 'sm:col-span-2'}>
+                <label className="block text-xs font-extrabold text-gray-800 uppercase tracking-wider mb-1">
+                  Horímetro do Equipamento (Obrigatório) *
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Ex: 82341.5"
+                  value={atendimentoAtual.horimetro}
+                  onChange={(e) =>
+                    handleUpdateAtendimento(atendimentoAtual.id, 'horimetro', e.target.value)
+                  }
+                  className="w-full px-3.5 py-3 border border-gray-300 bg-white rounded-xl text-sm font-bold font-mono focus:outline-none focus:ring-2 focus:ring-[#19502F]"
+                />
+              </div>
+            </div>
+
+            {/* Sintoma pelo Catálogo da TAG (<SeletorCatalogo />) */}
+            <div>
+              {activeParada?.falha && !destravarCabecalho.sintomaCatalogo ? (
+                <div className="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200 flex items-center justify-between gap-3">
+                  <div>
+                    <span className="text-[10px] font-extrabold text-emerald-800 uppercase tracking-wider flex items-center gap-1">
+                      <Lock className="w-3 h-3" /> Sintoma Catalogado na Parada
+                    </span>
+                    <p className="text-sm font-black text-emerald-950 mt-0.5">
+                      {formatarFalhaCard(
+                        atendimentoAtual.falha || activeParada.falha,
+                        atendimentoAtual.sintoma || activeParada.sintomaInicial
+                      )}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDestravarCabecalho((p) => ({ ...p, sintomaCatalogo: true }))
+                    }
+                    className="px-3 py-1.5 rounded-xl bg-white border border-emerald-300 text-emerald-900 text-xs font-bold uppercase hover:bg-emerald-100 cursor-pointer shrink-0"
+                  >
+                    Alterar
+                  </button>
+                </div>
+              ) : (
+                <SeletorCatalogo
+                  tag={activeParada?.tag || atendimentoAtual.equipamento}
+                  value={atendimentoAtual.falha || activeParada?.falha || null}
+                  complemento={
+                    atendimentoAtual.falha
+                      ? atendimentoAtual.falha.complemento || ''
+                      : atendimentoAtual.sintoma || activeParada?.sintomaInicial || ''
+                  }
+                  obrigatorio={true}
+                  isAdmin={user.role === 'admin'}
+                  labelTitulo="SINTOMA PELO CATÁLOGO DA TAG *"
+                  onChange={(falha, resumo, comp) => {
+                    setAtendimentos((prev) =>
+                      prev.map((item) =>
+                        item.id === atendimentoAtual.id
+                          ? {
+                              ...item,
+                              falha,
+                              sintoma: resumo || comp
+                            }
+                          : item
+                      )
+                    );
+                  }}
+                />
+              )}
+            </div>
+
+            {/* Causa (obrigatória ao finalizar) */}
+            <div>
+              <label className="block text-xs font-extrabold text-gray-800 uppercase tracking-wider mb-1">
+                Causa (Obrigatória ao finalizar) *
+              </label>
+              <textarea
+                rows={2}
+                placeholder="Ex: Mangueira da bomba P2 rompida por desgaste..."
+                value={atendimentoAtual.causa}
+                onChange={(e) =>
+                  handleUpdateAtendimento(atendimentoAtual.id, 'causa', e.target.value)
+                }
+                className="w-full px-3.5 py-2.5 border border-gray-300 bg-white rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#19502F]"
+              />
+            </div>
+
+            {/* Ação Executada (obrigatória ao finalizar) */}
+            <div>
+              <label className="block text-xs font-extrabold text-gray-800 uppercase tracking-wider mb-1">
+                Ação Executada (Obrigatória ao finalizar) *
+              </label>
+              <textarea
+                rows={3}
+                placeholder="Descreva o serviço realizado pela equipe..."
+                value={atendimentoAtual.acaoExecutada}
+                onChange={(e) =>
+                  handleUpdateAtendimento(atendimentoAtual.id, 'acaoExecutada', e.target.value)
+                }
+                className="w-full px-3.5 py-2.5 border border-gray-300 bg-white rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#19502F]"
+              />
+            </div>
+
+            {/* Fotos (Câmera e Galeria) */}
+            <div className="pt-2 border-t border-gray-150">
+              <span className="block text-xs font-extrabold text-gray-700 uppercase tracking-wider mb-2">
+                Fotos do Atendimento (Câmera ou Galeria)
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <label className="inline-flex items-center justify-center gap-2 px-4 py-3.5 bg-emerald-50 border-2 border-dashed border-emerald-800 text-emerald-900 rounded-xl font-extrabold text-xs uppercase tracking-wider hover:bg-emerald-100 transition cursor-pointer">
+                  <span>📸 TIRAR FOTO (CÂMERA)</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={(e) => {
+                      handleImageUpload(atendimentoAtual.id, e.target.files);
+                      e.target.value = '';
+                    }}
+                    className="hidden"
+                  />
+                </label>
+
+                <label className="inline-flex items-center justify-center gap-2 px-4 py-3.5 bg-gray-50 border-2 border-dashed border-gray-300 text-gray-700 rounded-xl font-extrabold text-xs uppercase tracking-wider hover:bg-gray-100 transition cursor-pointer">
+                  <span>🖼️ CARREGAR DA GALERIA</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => {
+                      handleImageUpload(atendimentoAtual.id, e.target.files);
+                      e.target.value = '';
+                    }}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              <div className="flex flex-wrap gap-2.5 mt-3">
+                {(atendimentoAtual.photoUrls && atendimentoAtual.photoUrls.length > 0
+                  ? atendimentoAtual.photoUrls
+                  : atendimentoAtual.photoUrl
+                  ? [atendimentoAtual.photoUrl]
+                  : []
+                ).map((pic, picIdx) => (
+                  <div
+                    key={picIdx}
+                    className="flex flex-col items-center gap-1 p-1.5 bg-gray-50 border border-gray-200 rounded-2xl"
+                  >
+                    <img
+                      src={pic}
+                      alt={`Foto ${picIdx + 1}`}
+                      onClick={() => setZoomedImage(pic || null)}
+                      className="h-20 w-20 object-cover rounded-xl cursor-zoom-in"
+                      referrerPolicy="no-referrer"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePhoto(atendimentoAtual.id, picIdx)}
+                      className="text-[10px] font-bold text-rose-600 hover:underline uppercase cursor-pointer"
+                    >
+                      Remover
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Previsão de Liberação (Opcional) */}
+            <div className="pt-2 border-t border-gray-150">
+              <label className="block text-xs font-extrabold text-amber-900 uppercase tracking-wider mb-1">
+                ⏰ Previsão de Liberação (Opcional)
+              </label>
+              <input
+                type="datetime-local"
+                value={atendimentoAtual.previsaoLiberacao || ''}
+                onChange={(e) =>
+                  handleUpdateAtendimento(
+                    atendimentoAtual.id,
+                    'previsaoLiberacao',
+                    e.target.value
+                  )
+                }
+                className="w-full px-3.5 py-2.5 border border-amber-200 bg-amber-50/20 rounded-xl text-sm font-mono font-semibold"
+              />
+            </div>
+
+            {/* Pendências / Anomalias (Opcional, botão "+ adicionar pendência") */}
+            <div className="pt-2 border-t border-gray-150 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-extrabold text-gray-700 uppercase tracking-wider">
+                  Pendências / Anomalias ({pendencias.length})
+                </span>
+                <button
+                  type="button"
+                  onClick={handleAddPendencia}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-extrabold uppercase hover:bg-amber-100 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" /> + adicionar pendência
+                </button>
+              </div>
+
+              {pendencias.map((pend, idx) => (
+                <div
+                  key={pend.id}
+                  className="p-3.5 rounded-2xl border border-amber-200 bg-amber-50/15 space-y-2.5 relative"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-extrabold text-amber-900 uppercase">
+                      Pendência #{idx + 1} • {pend.equipamento || activeParada?.tag}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePendencia(pend.id)}
+                      className="text-rose-600 hover:text-rose-800 text-xs font-bold cursor-pointer"
+                    >
+                      Remover
+                    </button>
+                  </div>
+                  <textarea
+                    rows={2}
+                    placeholder="Descreva a pendência ou anomalia..."
+                    value={pend.descricao}
+                    onChange={(e) => handleUpdatePendencia(pend.id, 'descricao', e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-xl text-xs font-medium"
+                  />
+                </div>
+              ))}
+            </div>
+
+            {/* Observações (opcional, recolhido por padrão) */}
+            <div className="pt-2 border-t border-gray-150">
+              <button
+                type="button"
+                onClick={() => setMostrarObservacoes(!mostrarObservacoes)}
+                className="flex items-center justify-between w-full text-left text-xs font-extrabold text-gray-600 hover:text-gray-900 uppercase tracking-wider py-1 cursor-pointer"
+              >
+                <span>Observações Gerais (Opcional)</span>
+                {mostrarObservacoes ? (
+                  <ChevronUp className="w-4 h-4" />
+                ) : (
+                  <ChevronDown className="w-4 h-4" />
+                )}
+              </button>
+              {mostrarObservacoes && (
+                <textarea
+                  rows={3}
+                  placeholder="Observações adicionais do atendimento..."
+                  value={observacoesGerais}
+                  onChange={(e) => setObservacoesGerais(e.target.value)}
+                  className="mt-2 w-full px-3.5 py-2.5 border border-gray-300 bg-gray-50 focus:bg-white rounded-xl text-sm"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          C1. MODAL "INICIAR ATENDIMENTO • <TAG>"
           ========================================================================= */}
       {iniciandoParada && (
         <div className="fixed inset-0 bg-black/65 backdrop-blur-xs z-50 flex items-center justify-center p-4">
@@ -2061,10 +2420,11 @@ export function MechanicView({
               <div>
                 <h3 className="text-sm font-black uppercase tracking-wider flex items-center gap-2">
                   <Play className="w-4 h-4 fill-current" />
-                  Iniciar Atendimento • {iniciandoParada.tag} ({iniciandoParada.frente})
+                  INICIAR ATENDIMENTO • {iniciandoParada.tag}
                 </h3>
                 <p className="text-[11px] text-emerald-100 mt-0.5">
-                  Parada aberta às {formatarHoraPtBr(iniciandoParada.inicioParada)} por {iniciandoParada.criadoPor}
+                  Frente {iniciandoParada.frente} • Parada aberta às{' '}
+                  {formatarHoraPtBr(iniciandoParada.inicioParada)} por {iniciandoParada.criadoPor}
                 </p>
               </div>
               <button
@@ -2076,12 +2436,12 @@ export function MechanicView({
               </button>
             </div>
 
-            <div className="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+            <div className="p-5 space-y-4 max-h-[82vh] overflow-y-auto">
               {iniciandoParada.emAtendimentoPor && (
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900">
                   <strong>Nota:</strong> Esta parada já está em atendimento por{' '}
                   <strong>{iniciandoParada.emAtendimentoPor.tecnicoPrincipal.nome}</strong> desde{' '}
-                  {formatarHoraPtBr(iniciandoParada.emAtendimentoPor.inicioAtendimento)}. Ao confirmar, você entrará automaticamente como{' '}
+                  {formatarHoraPtBr(iniciandoParada.emAtendimentoPor.inicioAtendimento)}. Ao confirmar, você entrará como{' '}
                   <strong>membro da equipe da mesma parada</strong>, sem duplicar!
                 </div>
               )}
@@ -2093,12 +2453,12 @@ export function MechanicView({
                 </div>
               )}
 
-              {/* Seleção Obrigatória do Técnico Responsável */}
+              {/* Técnico Responsável (Obrigatório) usando <SeletorTecnico /> */}
               <div>
                 <label className="block text-xs font-extrabold text-gray-800 uppercase tracking-wider mb-1.5">
                   Técnico Responsável (Obrigatório) *
                 </label>
-                <TechnicianScrollSelector
+                <SeletorTecnico
                   tecnicos={tecnicos}
                   selectedNome={tecnicoNome}
                   selectedFuncao={tecnicoFuncao}
@@ -2116,7 +2476,7 @@ export function MechanicView({
                 />
               </div>
 
-              {/* Membros adicionais da equipe (opcional) */}
+              {/* Outros membros da equipe usando <SeletorTecnico /> */}
               <div className="border-t border-gray-150 pt-3">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[11px] font-extrabold text-gray-700 uppercase tracking-wider">
@@ -2125,7 +2485,6 @@ export function MechanicView({
                   <button
                     type="button"
                     onClick={() => {
-                      setShowExtraEquipe(true);
                       setExtraIntegrantes([
                         ...extraIntegrantes,
                         {
@@ -2146,18 +2505,27 @@ export function MechanicView({
                 {extraIntegrantes.length > 0 && (
                   <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
                     {extraIntegrantes.map((membro) => (
-                      <div key={membro.id} className="p-2.5 bg-gray-50 border border-gray-200 rounded-xl space-y-2">
+                      <div
+                        key={membro.id}
+                        className="p-2.5 bg-gray-50 border border-gray-200 rounded-xl space-y-2"
+                      >
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold text-gray-500 uppercase">Membro da Equipe</span>
+                          <span className="text-[10px] font-bold text-gray-500 uppercase">
+                            Membro da Equipe
+                          </span>
                           <button
                             type="button"
-                            onClick={() => setExtraIntegrantes(extraIntegrantes.filter(m => m.id !== membro.id))}
+                            onClick={() =>
+                              setExtraIntegrantes(
+                                extraIntegrantes.filter((m) => m.id !== membro.id)
+                              )
+                            }
                             className="text-rose-600 hover:text-rose-800 text-xs font-bold cursor-pointer"
                           >
                             Remover
                           </button>
                         </div>
-                        <TechnicianScrollSelector
+                        <SeletorTecnico
                           tecnicos={tecnicos}
                           selectedNome={membro.nome}
                           selectedFuncao={membro.funcao}
@@ -2166,8 +2534,10 @@ export function MechanicView({
                           label="SELECIONAR MEMBRO"
                           onChange={(nome, funcao, matricula) => {
                             setExtraIntegrantes(
-                              extraIntegrantes.map(m =>
-                                m.id === membro.id ? { ...m, nome, funcao, matricula: matricula || '' } : m
+                              extraIntegrantes.map((m) =>
+                                m.id === membro.id
+                                  ? { ...m, nome, funcao, matricula: matricula || '' }
+                                  : m
                               )
                             );
                           }}
@@ -2178,16 +2548,16 @@ export function MechanicView({
                 )}
               </div>
 
-              {/* Tipo de Manutenção -> Define HMC 9000 / MPS 7000 / MPNS 8000 */}
+              {/* Tipo de Manutenção: CORRETIVA (HMC 9000) / PREVENTIVA (MPS 7000) / PROGRAMADA (MPNS 8000) */}
               <div className="border-t border-gray-150 pt-3">
                 <label className="block text-xs font-extrabold text-gray-800 uppercase tracking-wider mb-1.5">
-                  Tipo de Manutenção (Código de Execução)
+                  Tipo de Manutenção
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                   {[
-                    { tipo: 'CORRETIVA' as const, cod: 'HMC 9000', desc: 'EXEC MANUT' },
-                    { tipo: 'PREVENTIVA' as const, cod: 'MPS 7000', desc: 'EXEC MANUT' },
-                    { tipo: 'PROGRAMADA' as const, cod: 'MPNS 8000', desc: 'EXEC MANUT' }
+                    { tipo: 'CORRETIVA' as const, cod: 'HMC 9000' },
+                    { tipo: 'PREVENTIVA' as const, cod: 'MPS 7000' },
+                    { tipo: 'PROGRAMADA' as const, cod: 'MPNS 8000' }
                   ].map((item) => (
                     <button
                       key={item.tipo}
@@ -2200,20 +2570,50 @@ export function MechanicView({
                       }`}
                     >
                       <span className="block text-[11px] font-black uppercase">{item.tipo}</span>
-                      <span className="block text-[10px] font-mono opacity-85 mt-0.5">{item.cod}</span>
+                      <span className="block text-[10px] font-mono opacity-85 mt-0.5">
+                        {item.cod}
+                      </span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Hora do Toque / Início do Atendimento */}
+              {/* TURMA (A, B, C, D, ADM, 1/3, 2/3) – pré-seleciona a última usada neste aparelho */}
+              <div className="border-t border-gray-150 pt-3">
+                <label className="block text-xs font-extrabold text-gray-800 uppercase tracking-wider mb-1.5">
+                  Turma
+                </label>
+                <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+                  {['A', 'B', 'C', 'D', 'ADM', '1/3', '2/3'].map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => {
+                        setTeam(opt);
+                        try {
+                          localStorage.setItem(ULTIMA_TURMA_KEY, opt);
+                        } catch {}
+                      }}
+                      className={`py-2.5 text-xs font-extrabold rounded-xl border transition cursor-pointer ${
+                        team === opt
+                          ? 'bg-[#19502F] text-white border-[#19502F] shadow-2xs'
+                          : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                      }`}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Hora de início do atendimento (padrão: agora) */}
               <div className="border-t border-gray-150 pt-3 flex items-center justify-between gap-4">
                 <div>
                   <label className="block text-xs font-extrabold text-gray-800 uppercase tracking-wider">
                     Hora de Início do Atendimento
                   </label>
                   <span className="text-[10px] text-gray-500">
-                    Fecha o período anterior e abre EXEC MANUT neste horário
+                    Fecha o segmento atual e abre EXEC MANUT neste horário
                   </span>
                 </div>
                 <input
@@ -2238,7 +2638,7 @@ export function MechanicView({
                   className="px-5 py-2.5 bg-[#19502F] hover:bg-emerald-950 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md flex items-center gap-1.5 cursor-pointer"
                 >
                   <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>Confirmar e Abrir Formulário</span>
+                  <span>Confirmar e Iniciar Atendimento</span>
                 </button>
               </div>
             </div>
@@ -2247,7 +2647,7 @@ export function MechanicView({
       )}
 
       {/* =========================================================================
-          MODAL 2: PAUSAR ATENDIMENTO (ITEM 3)
+          MODAL PAUSAR ATENDIMENTO
           ========================================================================= */}
       {pausandoParada && (
         <div className="fixed inset-0 bg-black/65 backdrop-blur-xs z-50 flex items-center justify-center p-4">
@@ -2304,7 +2704,6 @@ export function MechanicView({
                     );
                   })}
 
-                  {/* Botão OUTRO (busca na base de códigos Vale) */}
                   <button
                     type="button"
                     onClick={() => setPausaModoOutro(true)}
@@ -2317,7 +2716,9 @@ export function MechanicView({
                     <span className="text-xs font-black uppercase flex items-center gap-1.5">
                       <Search className="w-3.5 h-3.5" /> OUTRO (Buscar na Base de Códigos Vale)
                     </span>
-                    <span className="text-[10px] font-mono font-bold text-[#19502F]">{pausaCodigo}</span>
+                    <span className="text-[10px] font-mono font-bold text-[#19502F]">
+                      {pausaCodigo}
+                    </span>
                   </button>
                 </div>
               </div>
@@ -2333,20 +2734,27 @@ export function MechanicView({
                     autoFocus
                   />
                   <div className="max-h-40 overflow-y-auto divide-y divide-gray-150 bg-white rounded-xl border border-gray-200">
-                    {CODIGOS_VALE_FLAT.filter(c => {
+                    {CODIGOS_VALE_FLAT.filter((c) => {
                       if (!pausaBuscaOutro.trim()) return c.sit === 'AG';
                       const q = removerAcentos(pausaBuscaOutro);
-                      return removerAcentos(c.rotuloCompleto).includes(q) || removerAcentos(c.quem).includes(q);
-                    }).map(c => (
+                      return (
+                        removerAcentos(c.rotuloCompleto).includes(q) ||
+                        removerAcentos(c.quem).includes(q)
+                      );
+                    }).map((c) => (
                       <button
                         key={c.codigo}
                         type="button"
                         onClick={() => setPausaCodigo(c.codigo)}
                         className={`w-full px-3 py-2 text-left text-xs flex items-center justify-between hover:bg-emerald-50 cursor-pointer ${
-                          pausaCodigo === c.codigo ? 'bg-emerald-100 font-bold text-emerald-950' : 'text-gray-700'
+                          pausaCodigo === c.codigo
+                            ? 'bg-emerald-100 font-bold text-emerald-950'
+                            : 'text-gray-700'
                         }`}
                       >
-                        <span><strong>{c.codigo}</strong> – {c.nome}</span>
+                        <span>
+                          <strong>{c.codigo}</strong> – {c.nome}
+                        </span>
                         <span className="text-[10px] font-mono text-gray-500">{c.resp}</span>
                       </button>
                     ))}
@@ -2402,7 +2810,7 @@ export function MechanicView({
       )}
 
       {/* =========================================================================
-          MODAL 3: RETOMAR ATENDIMENTO (ITEM 3)
+          MODAL RETOMAR ATENDIMENTO
           ========================================================================= */}
       {retomandoParada && (
         <div className="fixed inset-0 bg-black/65 backdrop-blur-xs z-50 flex items-center justify-center p-4">
@@ -2414,7 +2822,8 @@ export function MechanicView({
                   Retomar Atendimento • {retomandoParada.tag}
                 </h3>
                 <p className="text-[11px] text-blue-100 mt-0.5">
-                  Fecha o período AG atual e reabre {retomandoParada.emAtendimentoPor?.codigoExec || 'HMC 9000'} EXEC MANUT
+                  Fecha o período AG atual e reabre{' '}
+                  {retomandoParada.emAtendimentoPor?.codigoExec || 'HMC 9000'} EXEC MANUT
                 </p>
               </div>
               <button
@@ -2464,7 +2873,7 @@ export function MechanicView({
       )}
 
       {/* =========================================================================
-          MODAL 4: FINALIZAR ATENDIMENTO (ITEM 4)
+          C2.d) MODAL FINALIZAR ATENDIMENTO
           ========================================================================= */}
       {finalizandoParada && (
         <div className="fixed inset-0 bg-black/65 backdrop-blur-xs z-50 flex items-center justify-center p-4">
@@ -2476,7 +2885,7 @@ export function MechanicView({
                   Finalizar Atendimento • {finalizandoParada.tag}
                 </h3>
                 <p className="text-[11px] text-emerald-100 mt-0.5">
-                  A Parada continuará ABERTA para o Admin encerrar quando o operador assumir
+                  Confirme o horário de término e a condição do equipamento
                 </p>
               </div>
               <button
@@ -2496,42 +2905,59 @@ export function MechanicView({
                 </div>
               )}
 
-              {/* Hora Fim (padrão: agora) */}
-              <div className="flex items-center justify-between bg-gray-50 p-3.5 rounded-2xl border border-gray-200">
-                <div>
-                  <label className="block text-xs font-extrabold text-gray-800 uppercase tracking-wider">
-                    Hora Fim do Atendimento *
-                  </label>
-                  <span className="text-[10px] text-gray-500">
-                    Fecha o segmento EXEC atual neste horário
-                  </span>
+              {/* Hora Fim e Horímetro */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="bg-gray-50 p-3 rounded-2xl border border-gray-200 flex items-center justify-between">
+                  <div>
+                    <label className="block text-xs font-extrabold text-gray-800 uppercase">
+                      Hora Fim *
+                    </label>
+                    <span className="text-[10px] text-gray-500">Padrão: agora</span>
+                  </div>
+                  <input
+                    type="time"
+                    value={finalizarHoraFim}
+                    onChange={(e) => setFinalizarHoraFim(e.target.value)}
+                    className="px-3 py-2 bg-white border border-gray-300 rounded-xl text-sm font-black font-mono text-gray-900"
+                    required
+                  />
                 </div>
-                <input
-                  type="time"
-                  value={finalizarHoraFim}
-                  onChange={(e) => setFinalizarHoraFim(e.target.value)}
-                  className="px-3 py-2 bg-white border border-gray-300 rounded-xl text-sm font-black font-mono text-gray-900 focus:ring-2 focus:ring-[#19502F]"
-                  required
-                />
+
+                <div className="bg-gray-50 p-3 rounded-2xl border border-gray-200">
+                  <label className="block text-[11px] font-extrabold text-gray-800 uppercase mb-1">
+                    Horímetro *
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="Ex: 82341.5"
+                    value={finalizarHorimetro}
+                    onChange={(e) => {
+                      setFinalizarHorimetro(e.target.value);
+                      setFinalizarErro('');
+                    }}
+                    className="w-full px-3 py-1.5 bg-white border border-gray-300 rounded-xl text-sm font-bold font-mono"
+                  />
+                </div>
               </div>
 
               {/* Sintoma, Causa e Ação Executada */}
               <div className="space-y-3">
-                <div>
-                  <SeletorCatalogo
-                    tag={finalizandoParada.tag}
-                    value={finalizarFalha}
-                    complemento={finalizarFalha ? (finalizarFalha.complemento || '') : finalizarSintoma}
-                    obrigatorio={true}
-                    isAdmin={user.role === 'admin'}
-                    labelTitulo="SINTOMA (CATÁLOGO DE FALHAS)"
-                    onChange={(falha, resumo, comp) => {
-                      setFinalizarFalha(falha);
-                      setFinalizarSintoma(resumo || comp);
-                      setFinalizarErro('');
-                    }}
-                  />
-                </div>
+                <SeletorCatalogo
+                  tag={finalizandoParada.tag}
+                  value={finalizarFalha}
+                  complemento={
+                    finalizarFalha ? finalizarFalha.complemento || '' : finalizarSintoma
+                  }
+                  obrigatorio={true}
+                  isAdmin={user.role === 'admin'}
+                  labelTitulo="SINTOMA (CATÁLOGO DE FALHAS) *"
+                  onChange={(falha, resumo, comp) => {
+                    setFinalizarFalha(falha);
+                    setFinalizarSintoma(resumo || comp);
+                    setFinalizarErro('');
+                  }}
+                />
 
                 <div>
                   <label className="block text-[11px] font-extrabold text-gray-700 uppercase mb-1">
@@ -2545,7 +2971,7 @@ export function MechanicView({
                       setFinalizarErro('');
                     }}
                     placeholder="Descreva a causa identificada..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-[#19502F]"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs font-medium"
                   />
                 </div>
 
@@ -2561,12 +2987,12 @@ export function MechanicView({
                       setFinalizarErro('');
                     }}
                     placeholder="Descreva o serviço executado..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-[#19502F]"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs font-medium"
                   />
                 </div>
               </div>
 
-              {/* Evidências Fotográficas (ligadas ao atendimento do equipamento) */}
+              {/* Fotos */}
               {atendimentoDaParadaFinalizando && (
                 <div className="p-3 bg-gray-50 rounded-2xl border border-gray-200 space-y-2">
                   <span className="block text-[10px] font-extrabold text-gray-600 uppercase tracking-wider">
@@ -2598,10 +3024,10 @@ export function MechanicView({
                 </div>
               )}
 
-              {/* Condição de Saída: Liberado (HOI 5936) vs Não Liberado - Continua Parado */}
+              {/* Opção: Equipamento LIBERADO vs Continua parado */}
               <div className="pt-2 border-t border-gray-200 space-y-3">
                 <label className="block text-xs font-extrabold text-gray-800 uppercase tracking-wider">
-                  Situação do Equipamento ao Finalizar
+                  Condição do Equipamento ao Finalizar
                 </label>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -2615,10 +3041,10 @@ export function MechanicView({
                     }`}
                   >
                     <span className="text-xs font-black uppercase block">
-                      ✓ Liberado p/ Manut (HOI 5936)
+                      ✓ Equipamento LIBERADO
                     </span>
                     <span className="text-[10px] block mt-0.5 opacity-80">
-                      Abre HOI 5936 LIBERADO PELA MANUT (Resp: PRODUÇÃO)
+                      Cria HOI 5936 LIBERADO PELA MANUT (Produção)
                     </span>
                   </button>
 
@@ -2632,7 +3058,7 @@ export function MechanicView({
                     }`}
                   >
                     <span className="text-xs font-black uppercase block">
-                      ⚠️ Não liberado – continua parado
+                      ⚠️ Continua parado
                     </span>
                     <span className="text-[10px] block mt-0.5 opacity-80">
                       Escolher código AG (continua aberta p/ próximo turno)
@@ -2641,7 +3067,7 @@ export function MechanicView({
                 </div>
 
                 {!finalizarLiberado && (
-                  <div className="p-3.5 bg-amber-50/60 border border-amber-200 rounded-2xl space-y-2.5">
+                  <div className="p-3.5 bg-amber-50/60 border border-amber-200 rounded-2xl space-y-2">
                     <label className="block text-[11px] font-extrabold text-amber-950 uppercase">
                       Código AG de Continuidade da Parada *
                     </label>
@@ -2650,12 +3076,16 @@ export function MechanicView({
                       onChange={(e) => setFinalizarCodigoContinuacao(e.target.value)}
                       className="w-full px-3 py-2 bg-white border border-amber-300 rounded-xl text-xs font-bold text-gray-900"
                     >
-                      {MOTIVOS_PAUSA_RAPIDA.map(m => (
+                      {MOTIVOS_PAUSA_RAPIDA.map((m) => (
                         <option key={m.codigo} value={m.codigo}>
                           {m.rotulo} ({m.resp})
                         </option>
                       ))}
-                      {CODIGOS_VALE_FLAT.filter(c => c.sit === 'AG' && !MOTIVOS_PAUSA_RAPIDA.some(m => m.codigo === c.codigo)).map(c => (
+                      {CODIGOS_VALE_FLAT.filter(
+                        (c) =>
+                          c.sit === 'AG' &&
+                          !MOTIVOS_PAUSA_RAPIDA.some((m) => m.codigo === c.codigo)
+                      ).map((c) => (
                         <option key={c.codigo} value={c.codigo}>
                           {c.rotuloCompleto} ({c.resp})
                         </option>
@@ -2701,7 +3131,7 @@ export function MechanicView({
       )}
 
       {/* =========================================================================
-          MODAL 5: ABRIR NOVA PARADA PELO TÉCNICO (ITEM 5)
+          C3. MODAL "ABRIR NOVA PARADA" PELO TÉCNICO
           ========================================================================= */}
       {showNovaParadaModal && (
         <div className="fixed inset-0 bg-black/65 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
@@ -2725,7 +3155,7 @@ export function MechanicView({
               </button>
             </div>
 
-            <form onSubmit={handleConfirmarNovaParadaTecnico} className="p-5 space-y-4 overflow-y-auto">
+            <div className="p-5 space-y-4 overflow-y-auto">
               <div>
                 <label className="block text-xs font-extrabold text-gray-800 uppercase tracking-wider mb-1">
                   TAG do Equipamento *
@@ -2760,7 +3190,6 @@ export function MechanicView({
                 </div>
               </div>
 
-              {/* Aviso se a TAG já tiver Parada ABERTA (Regra 5) */}
               {paradaDuplicadaExistente && (
                 <div className="p-3.5 bg-amber-50 border-2 border-amber-400 rounded-2xl space-y-2">
                   <div className="flex items-start gap-2 text-amber-950">
@@ -2779,19 +3208,12 @@ export function MechanicView({
                     type="button"
                     onClick={() => {
                       setShowNovaParadaModal(false);
-                      setFiltroFrenteParada('TODAS');
-                      setFiltroTagParada('');
-                      setHighlightParadaId(paradaDuplicadaExistente.id);
-                      setTimeout(() => {
-                        const el = document.getElementById(`card-parada-${paradaDuplicadaExistente.id}`);
-                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                      }, 150);
-                      setTimeout(() => setHighlightParadaId(null), 5000);
+                      handleAbrirModalIniciar(paradaDuplicadaExistente);
                     }}
                     className="w-full py-2.5 px-3 bg-amber-500 hover:bg-amber-600 text-emerald-950 font-black text-xs uppercase rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
                   >
-                    <ArrowRight className="w-4 h-4" />
-                    <span>Ir para o Card desta Parada</span>
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>Iniciar Atendimento desta Parada Agora</span>
                   </button>
                 </div>
               )}
@@ -2847,7 +3269,7 @@ export function MechanicView({
                   complemento={novaParadaSintoma}
                   obrigatorio={false}
                   isAdmin={user.role === 'admin'}
-                  labelTitulo="SINTOMA INICIAL / CATÁLOGO DE FALHAS (OPCIONAL NA ABERTURA)"
+                  labelTitulo="SINTOMA PELO CATÁLOGO DA TAG (OPCIONAL NA ABERTURA)"
                   onChange={(falha, resumo, comp) => {
                     setNovaParadaFalha(falha);
                     setNovaParadaSintoma(resumo || comp);
@@ -2855,7 +3277,7 @@ export function MechanicView({
                 />
               </div>
 
-              <div className="pt-3 border-t border-gray-200 flex justify-end gap-2.5">
+              <div className="pt-3 border-t border-gray-200 flex flex-wrap justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowNovaParadaModal(false)}
@@ -2864,90 +3286,118 @@ export function MechanicView({
                   Cancelar
                 </button>
                 <button
-                  type="submit"
-                  disabled={!!paradaDuplicadaExistente}
-                  className="px-5 py-2.5 bg-[#19502F] hover:bg-emerald-950 disabled:opacity-40 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer"
+                  type="button"
+                  disabled={!novaParadaTag.trim() || !!paradaDuplicadaExistente}
+                  onClick={() => criarParadaPeloTecnico(false)}
+                  className="px-4 py-2.5 bg-white border border-[#19502F] text-[#19502F] hover:bg-emerald-50 disabled:opacity-40 font-black text-xs uppercase rounded-xl cursor-pointer"
                 >
-                  Criar Parada
+                  Apenas Criar Parada
+                </button>
+                <button
+                  type="button"
+                  disabled={!novaParadaTag.trim() || !!paradaDuplicadaExistente}
+                  onClick={() => criarParadaPeloTecnico(true)}
+                  className="px-5 py-2.5 bg-[#19502F] hover:bg-emerald-950 disabled:opacity-40 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Iniciar atendimento agora</span>
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* LIGHTBOX FOR ADDED PHOTOS */}
-      {zoomedImage && (
-        <div 
-          onClick={() => setZoomedImage(null)}
-          className="fixed inset-0 bg-black/95 backdrop-blur-md z-[999] flex flex-col items-center justify-center p-4 md:p-6 cursor-zoom-out select-none animate-in fade-in duration-200"
-        >
-          <button 
-            onClick={() => setZoomedImage(null)}
-            className="absolute top-4 right-4 md:top-6 md:right-6 text-white/85 hover:text-white bg-white/10 hover:bg-white/20 w-12 h-12 rounded-full flex items-center justify-center text-xl transition-all active:scale-90"
-            aria-label="Fechar zoom"
-          >
-            ✕
-          </button>
-
-          <div className="relative max-w-[95vw] max-h-[85vh] w-full flex flex-col justify-center items-center gap-4">
-            <img 
-              src={zoomedImage} 
-              alt="Evidência fotográfica ampliada" 
-              className="max-w-full max-h-[78vh] md:max-h-[82vh] object-contain rounded-xl md:rounded-2xl shadow-2xl border border-white/5 animate-in zoom-in-95 duration-200"
-              referrerPolicy="no-referrer"
-            />
-            <div className="text-white/90 text-[10px] font-black uppercase tracking-widest bg-emerald-950/80 backdrop-blur-md border border-emerald-500/20 px-5 py-2.5 rounded-full shadow-lg text-center">
-              Clique em qualquer lugar para fechar o Zoom ✕
             </div>
           </div>
         </div>
       )}
 
-      {/* SUCCESS SUBMISSION MODAL */}
+      {/* LIGHTBOX DE FOTOS */}
+      {zoomedImage && (
+        <div
+          onClick={() => setZoomedImage(null)}
+          className="fixed inset-0 bg-black/95 backdrop-blur-md z-[999] flex flex-col items-center justify-center p-4 cursor-zoom-out"
+        >
+          <img
+            src={zoomedImage}
+            alt="Evidência ampliada"
+            className="max-w-full max-h-[82vh] object-contain rounded-2xl shadow-2xl"
+            referrerPolicy="no-referrer"
+          />
+          <span className="mt-3 text-white/90 text-xs font-bold uppercase">
+            Toque em qualquer lugar para fechar ✕
+          </span>
+        </div>
+      )}
+
+      {/* MODAL DE CONFIRMAÇÃO "RELATÓRIO ENVIADO" */}
       {showSubmitModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-6 max-w-sm w-full text-center shadow-2xl border border-gray-100 animate-in fade-in zoom-in-95 duration-250">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full text-center shadow-2xl border border-gray-100">
             <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-100">
-              <CheckCircle2 className="w-9 h-9 text-emerald-600 animate-bounce" />
+              <CheckCircle2 className="w-9 h-9 text-emerald-600" />
             </div>
-            
             <h3 className="text-lg font-black text-emerald-950 uppercase tracking-tight mb-2">
-              Relatório Enviado!
+              Relatório enviado
             </h3>
-            
             <p className="text-xs text-gray-600 font-semibold leading-relaxed mb-6">
-              Seu relatório de manutenção foi finalizado e vinculado à Parada do equipamento no painel do supervisor!
+              O relatório foi gravado como ENVIADO e vinculado à Parada do equipamento.
             </p>
-            
             <button
               type="button"
-              onClick={() => {
-                setShowSubmitModal(false);
-                setActiveTab('history');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              className="w-full py-3.5 bg-emerald-900 border border-transparent text-white font-extrabold text-xs uppercase tracking-widest rounded-xl hover:bg-emerald-950 transition active:scale-95 cursor-pointer shadow-md"
+              onClick={() => setShowSubmitModal(false)}
+              className="w-full py-3.5 bg-[#19502F] text-white font-extrabold text-xs uppercase tracking-widest rounded-xl hover:bg-emerald-950 transition cursor-pointer shadow-md"
             >
-              OK, Entendido!
+              OK
             </button>
           </div>
         </div>
       )}
 
-      {/* GLOBAL FOOTER ACTION & NAVIGATION BAR */}
-      <div className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-150 py-1.5 pb-3 z-40 px-3 shadow-xl select-none">
-        <div className="max-w-4xl mx-auto flex flex-col gap-1.5">
-          {activeTab === 'form' && (
-            <div className="flex gap-2.5 h-11 mb-0.5">
+      {/* =========================================================================
+          RODAPÉ FIXO:
+          - Na tela "ATENDIMENTO • <TAG>" (C2.c): "PAUSAR" (ou "RETOMAR"), "SALVAR RASCUNHO" e "FINALIZAR"
+          - Na tela inicial / Meus Relatórios (B4): apenas as abas "PAINEL" e "MEUS RELATÓRIOS"
+          ========================================================================= */}
+      <div className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 py-2.5 px-3 z-40 shadow-xl select-none">
+        <div className="max-w-5xl mx-auto">
+          {activeTab === 'atendimento' ? (
+            <div className="grid grid-cols-3 gap-2.5">
+              {activeParada ? (
+                !activeParada.emAtendimentoPor?.pausadoEm ? (
+                  <button
+                    type="button"
+                    onClick={() => handleAbrirModalPausar(activeParada)}
+                    className="py-3 px-3 bg-amber-500 hover:bg-amber-600 text-emerald-950 font-black text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <Pause className="w-4 h-4 fill-current" />
+                    <span>PAUSAR</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleAbrirModalRetomar(activeParada)}
+                    className="py-3 px-3 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span>RETOMAR</span>
+                  </button>
+                )
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('painel')}
+                  className="py-3 px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-black text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>PAINEL</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 disabled={isSaving}
-                onClick={() => handleSave('RASCUNHO')}
-                className="flex-1 bg-white border border-emerald-800 text-emerald-900 hover:bg-emerald-50 rounded-xl text-[10px] font-black tracking-normal uppercase flex items-center justify-center gap-1 cursor-pointer transition duration-150 active:scale-95 shadow-3xs disabled:opacity-50"
+                onClick={handleSalvarRascunhoManual}
+                className="py-3 px-3 bg-white border-2 border-[#19502F] text-[#19502F] hover:bg-emerald-50 font-black text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
               >
-                <ClipboardList className="w-3 h-3 text-emerald-900" />
-                <span>{isSaving ? 'SALVANDO...' : 'SALVAR EM RASCUNHO'}</span>
+                <Save className="w-4 h-4" />
+                <span>SALVAR RASCUNHO</span>
               </button>
 
               <button
@@ -2956,199 +3406,62 @@ export function MechanicView({
                 onClick={() => {
                   if (activeParada) {
                     handleAbrirModalFinalizar(activeParada);
-                  } else {
-                    handleSave('ENVIADO');
+                  } else if (atendimentoAtual) {
+                    if (
+                      !atendimentoAtual.horimetro.trim() ||
+                      !atendimentoAtual.causa.trim() ||
+                      !atendimentoAtual.acaoExecutada.trim()
+                    ) {
+                      alert('Preencha Horímetro, Sintoma, Causa e Ação Executada para finalizar.');
+                      return;
+                    }
+                    handleSaveWithCustomAtendimentos('ENVIADO', atendimentos);
                   }
                 }}
-                className="flex-1 bg-emerald-900 text-white hover:bg-emerald-950 rounded-xl text-[10px] font-black tracking-normal uppercase flex items-center justify-center gap-1 cursor-pointer transition duration-150 active:scale-105 shadow-sm shadow-emerald-900/10 disabled:opacity-50"
+                className="py-3 px-3 bg-[#19502F] hover:bg-emerald-950 text-white font-black text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-md disabled:opacity-50"
               >
-                <Send className="w-3 h-3 text-emerald-100" />
-                <span>{isSaving ? 'ENVIANDO...' : 'FINALIZAR E ENVIAR'}</span>
+                <CheckCircle2 className="w-4 h-4" />
+                <span>FINALIZAR</span>
+              </button>
+            </div>
+          ) : (
+            /* B4. Rodapé fixo no Controle: apenas as abas "PAINEL" e "MEUS RELATÓRIOS" */
+            <div className="grid grid-cols-2 gap-3 max-w-md mx-auto">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('painel');
+                  window.scrollTo({ top: 0, behavior: 'instant' });
+                }}
+                className={`py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition cursor-pointer ${
+                  activeTab === 'painel'
+                    ? 'bg-[#19502F] text-white shadow-sm'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                <span>PAINEL</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('meus_relatorios');
+                  window.scrollTo({ top: 0, behavior: 'instant' });
+                }}
+                className={`py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition cursor-pointer ${
+                  activeTab === 'meus_relatorios'
+                    ? 'bg-[#19502F] text-white shadow-sm'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <ClipboardList className="w-4 h-4" />
+                <span>MEUS RELATÓRIOS ({myReports.length})</span>
               </button>
             </div>
           )}
-
-          <div className="flex items-center justify-between gap-2 pt-1">
-            <div className="flex-1 flex justify-start">
-              <button
-                type="button"
-                onClick={() => setShowPreventivasModal(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-2 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-extrabold text-[9px] sm:text-[10px] tracking-wider uppercase rounded-xl transition duration-150 shadow-xs cursor-pointer select-none"
-                title="Cadastrar futuras paradas para preventiva"
-              >
-                <Calendar className="w-3.5 h-3.5 text-amber-105" />
-                <span className="hidden xs:inline">🗓️ PREVENTIVAS</span>
-                <span className="xs:hidden">🗓️ PREV</span>
-              </button>
-            </div>
-
-            <div className="inline-flex bg-gray-100 border border-gray-250 p-0.5 rounded-full shadow-md items-center">
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('history');
-                  window.scrollTo({ top: 0, behavior: 'instant' });
-                }}
-                className={`flex items-center gap-1 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider transition duration-150 cursor-pointer select-none ${
-                  activeTab === 'history'
-                    ? 'bg-emerald-900 text-white shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                <ClipboardList className="w-3 h-3" />
-                <span>LISTA</span>
-              </button>
-              
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('form');
-                  window.scrollTo({ top: 0, behavior: 'instant' });
-                }}
-                className={`flex items-center gap-1 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider transition duration-150 cursor-pointer select-none ${
-                  activeTab === 'form'
-                    ? 'bg-emerald-900 text-white shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                <PlusCircle className="w-3 h-3" />
-                <span>INSPECIONAR</span>
-              </button>
-            </div>
-
-            <div className="flex-1 hidden md:flex justify-end text-[9px] text-gray-400 font-mono font-bold uppercase tracking-wider">
-              Usuário: <strong className="text-gray-700 ml-1">{user.username}</strong>
-            </div>
-            <div className="flex-1 md:hidden"></div>
-          </div>
         </div>
       </div>
-
-      {/* HORIZONTE DE PARADA DOS EQUIPAMENTOS MODAL */}
-      {showPreventivasModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in font-sans">
-          <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl border border-gray-100 overflow-hidden loader-entry">
-            <div className="bg-gradient-to-r from-amber-600 to-amber-700 p-5 text-white relative">
-              <button
-                type="button"
-                onClick={() => setShowPreventivasModal(false)}
-                className="absolute top-4 right-4 text-white/80 hover:text-white bg-black/20 hover:bg-black/35 p-1.5 rounded-full transition cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-              <h3 className="text-sm uppercase font-black tracking-widest flex items-center gap-2">
-                <Calendar className="w-5 h-5" />
-                <span>Horizonte de Parada dos Equipamentos</span>
-              </h3>
-              <p className="text-[11px] text-amber-105 mt-1 uppercase font-semibold tracking-wider">
-                Paradas preventivas programadas para acompanhamento em tempo real
-              </p>
-            </div>
-
-            <div className="p-5 space-y-5 max-h-[75vh] overflow-y-auto">
-              <div className="bg-amber-50/40 p-4 rounded-2xl border border-amber-200/55 space-y-4">
-                <h4 className="text-[11px] font-black text-amber-900 uppercase tracking-wider flex items-center gap-1">
-                  <span>➕ NOVO AGENDAMENTO DE PREVENTIVA</span>
-                </h4>
-                
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[10px] font-extrabold text-amber-900 uppercase tracking-wider mb-1">
-                      Equipamento *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Ex: CR-3112"
-                      value={newEquip}
-                      onChange={(e) => setNewEquip(e.target.value)}
-                      className="block w-full px-3 py-2 bg-white border border-amber-200/95 rounded-xl text-gray-900 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-amber-550 font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-extrabold text-amber-900 uppercase tracking-wider mb-1">
-                      Data da Parada *
-                    </label>
-                    <input
-                      type="date"
-                      required
-                      value={newDate}
-                      onChange={(e) => setNewDate(e.target.value)}
-                      className="block w-full px-3 py-2 bg-white border border-amber-200/95 rounded-xl text-gray-900 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-amber-550 font-mono"
-                    />
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleRegisterPreventiva}
-                  disabled={!newEquip.trim() || !newDate}
-                  className="w-full bg-amber-600 hover:bg-amber-700 active:bg-amber-800 disabled:opacity-50 text-white font-black text-xs uppercase tracking-widest py-3.5 rounded-xl cursor-pointer transition-all flex items-center justify-center gap-1.5"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Cadastrar Parada Futura</span>
-                </button>
-              </div>
-
-              <div className="space-y-2.5">
-                <h4 className="text-[11px] font-black text-gray-600 uppercase tracking-widest flex items-center gap-1.5 border-b border-gray-100 pb-2">
-                  <span>🗓️ PARADAS PROGRAMADAS NO FIRESTORE</span>
-                  <span className="bg-gray-100 text-gray-750 border border-gray-200 text-[10px] px-1.5 py-0.5 rounded-md font-mono">
-                    {preventivas.length}
-                  </span>
-                </h4>
-
-                {preventivas.length === 0 ? (
-                  <div className="text-center py-8 text-gray-400 font-medium italic text-xs uppercase font-mono">
-                    Nenhuma parada preventiva futura cadastrada.
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {preventivas.map((p) => (
-                      <div key={p.id} className="flex items-center justify-between p-3 bg-gray-50 border border-gray-150 rounded-2xl font-mono hover:bg-gray-100/50 transition">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2 rounded-full bg-amber-500"></span>
-                          <span className="font-extrabold text-[#111]">{p.equipamento}</span>
-                          <span className="text-gray-400 font-semibold">•</span>
-                          <span className="font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg text-[11px]">
-                            {p.dataParada}
-                          </span>
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                          <span className="hidden sm:inline text-[9px] text-gray-400 font-semibold uppercase">
-                            Criado por: {p.usuario || 'controle'}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => onDeletePreventiva(p.id)}
-                            className="bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 p-2 rounded-xl transition cursor-pointer"
-                            title="Remover programação"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="bg-gray-50 p-4 border-t border-gray-100 text-center">
-              <button
-                type="button"
-                onClick={() => setShowPreventivasModal(false)}
-                className="w-full sm:w-auto px-6 py-2 bg-gray-200 hover:bg-gray-250 text-gray-700 font-bold text-xs uppercase rounded-xl transition cursor-pointer"
-              >
-                Fechar Painel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }

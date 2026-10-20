@@ -29,6 +29,7 @@ import { db, storage } from './lib/firebase';
 import { mapFirestoreDocToReport, syncSingleReport } from './lib/syncEngine';
 import { processarAtendimentosParaParadas } from './lib/paradasEngine';
 import { definirCatalogoCustomizado } from './data/catalogoFalhas';
+import { classificarGrupoFuncao, formatarNomeSobrenome, normalizarMatricula } from './lib/uEmDataUtils';
 import {
   getDeletedReportIds,
   addDeletedReportId,
@@ -696,35 +697,85 @@ export default function App() {
     }
   };
 
-  // 2.3 Listen to tecnicos collection
+  // 2.3 Listen to tecnicos collection (shared single source of truth for Admin and Controle)
+  const saveTecnicosLocalCache = (lista: Tecnico[]) => {
+    try {
+      const json = JSON.stringify(lista);
+      localStorage.setItem('rft_tecnicos', json);
+      localStorage.setItem('rft_tecnicos_cache', json);
+      localStorage.setItem('tecnicos', json);
+    } catch (e) {}
+  };
+
   useEffect(() => {
+    // Also fetch from /api/tecnicos on boot / online to ensure cross-device sync even if Firestore is empty or restricted
+    if (!isOffline) {
+      fetch('/api/tecnicos')
+        .then((res) => (res.ok ? res.json() : []))
+        .then((apiList) => {
+          if (Array.isArray(apiList) && apiList.length > 0) {
+            const deletedTecs = getDeletedTecnicoIds();
+            const normalizedApi: Tecnico[] = apiList
+              .filter((t: any) => t && t.nome && !deletedTecs.has(t.id) && !isSampleMockTecnico(t))
+              .map((t: any) => {
+                const funcao = t.funcao || 'Mecânico';
+                const matricula = normalizarMatricula(t.matricula);
+                return {
+                  id: t.id || `tec-${matricula || Date.now()}`,
+                  nome: formatarNomeSobrenome(t.nome),
+                  funcao,
+                  grupo: t.grupo || classificarGrupoFuncao(funcao),
+                  matricula,
+                  secao: t.secao || '',
+                  status: t.status || 'ativo',
+                  createdAt: t.createdAt || '',
+                  atualizadoEm: t.atualizadoEm || ''
+                };
+              });
+            if (normalizedApi.length > 0) {
+              setTecnicos((prev) => {
+                if (prev.length >= normalizedApi.length) return prev;
+                const sorted = [...normalizedApi].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+                saveTecnicosLocalCache(sorted);
+                return sorted;
+              });
+            }
+          }
+        })
+        .catch(() => {});
+    }
+
     if (isOffline) return;
 
     const tq = query(collection(db, 'tecnicos'));
     const unsubscribe = onSnapshot(tq, (snapshot) => {
       if (snapshot.empty) {
-        setTecnicos([]);
-        try { localStorage.setItem('rft_tecnicos', JSON.stringify([])); } catch (e) {}
         return;
       }
 
       const deletedTecs = getDeletedTecnicoIds();
-      const serverTecs: Tecnico[] = [];
+      const porMatriculaOuId = new Map<string, Tecnico>();
       snapshot.forEach((docSnap) => {
         try {
           if (!deletedTecs.has(docSnap.id)) {
             const data = docSnap.data();
+            const funcao = data.funcao || 'Mecânico';
+            const matricula = normalizarMatricula(data.matricula);
             const candidate: Tecnico = {
               id: docSnap.id,
-              nome: data.nome || '',
-              funcao: data.funcao || 'Mecânico',
-              matricula: data.matricula || '',
+              nome: formatarNomeSobrenome(data.nome || ''),
+              funcao,
+              grupo: data.grupo || classificarGrupoFuncao(funcao),
+              matricula,
+              secao: data.secao || '',
               status: data.status || 'ativo',
-              createdAt: data.createdAt || ''
+              createdAt: data.createdAt || '',
+              atualizadoEm: data.atualizadoEm || ''
             };
-            if (!isSampleMockTecnico(candidate)) {
-              serverTecs.push(candidate);
-            } else {
+            if (!isSampleMockTecnico(candidate) && candidate.nome) {
+              const key = matricula || candidate.id;
+              porMatriculaOuId.set(key, candidate);
+            } else if (isSampleMockTecnico(candidate)) {
               deleteDoc(doc(db, 'tecnicos', docSnap.id)).catch(() => {});
             }
           }
@@ -733,11 +784,11 @@ export default function App() {
         }
       });
 
-      serverTecs.sort((a, b) => a.nome.localeCompare(b.nome));
+      const serverTecs = Array.from(porMatriculaOuId.values()).sort((a, b) =>
+        a.nome.localeCompare(b.nome, 'pt-BR')
+      );
       setTecnicos(serverTecs);
-      try {
-        localStorage.setItem('rft_tecnicos', JSON.stringify(serverTecs));
-      } catch (e) {}
+      saveTecnicosLocalCache(serverTecs);
     }, (error) => {
       console.warn('Erro ao escutar tecnicos Firestore:', error);
     });
@@ -748,16 +799,27 @@ export default function App() {
   }, [isOffline]);
 
   const handleAddTecnico = async (newTec: Omit<Tecnico, 'id' | 'createdAt'>) => {
-    const id = `tec-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const matriculaNorm = normalizarMatricula(newTec.matricula);
+    const id = matriculaNorm ? `tec-${matriculaNorm}` : `tec-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const funcao = newTec.funcao || 'Mecânico';
     const tecObj: Tecnico = {
       id,
       ...newTec,
-      createdAt: new Date().toISOString()
+      nome: formatarNomeSobrenome(newTec.nome),
+      funcao,
+      grupo: newTec.grupo || classificarGrupoFuncao(funcao),
+      matricula: matriculaNorm,
+      status: newTec.status || 'ativo',
+      createdAt: new Date().toISOString(),
+      atualizadoEm: new Date().toISOString()
     };
 
     setTecnicos((prev) => {
-      const updated = [...prev, tecObj].sort((a, b) => a.nome.localeCompare(b.nome));
-      try { localStorage.setItem('rft_tecnicos', JSON.stringify(updated)); } catch (e) {}
+      const filtered = prev.filter(
+        (t) => t.id !== tecObj.id && (!matriculaNorm || normalizarMatricula(t.matricula) !== matriculaNorm)
+      );
+      const updated = [...filtered, tecObj].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+      saveTecnicosLocalCache(updated);
       return updated;
     });
 
@@ -775,6 +837,78 @@ export default function App() {
     }
 
     addToast('Técnico Cadastrado', `${tecObj.nome} (${tecObj.funcao}) cadastrado com sucesso!`, 'success');
+  };
+
+  const handleAddTecnicosBulk = async (novosTecnicos: Tecnico[]) => {
+    if (!novosTecnicos || novosTecnicos.length === 0) return;
+
+    // Remove qualquer tombstone das matrículas/IDs que estão sendo importados
+    clearDeletedTecnicoIds();
+
+    const normalizados: Tecnico[] = novosTecnicos.map((t, idx) => {
+      const matricula = normalizarMatricula(t.matricula);
+      const funcao = t.funcao || 'Mecânico';
+      const id = matricula ? `tec-${matricula}` : t.id || `tec-${Date.now()}-${idx}`;
+      return {
+        ...t,
+        id,
+        nome: formatarNomeSobrenome(t.nome),
+        funcao,
+        grupo: t.grupo || classificarGrupoFuncao(funcao),
+        matricula,
+        secao: t.secao || '',
+        status: 'ativo',
+        createdAt: t.createdAt || new Date().toISOString(),
+        atualizadoEm: new Date().toISOString()
+      };
+    });
+
+    let listaFinal: Tecnico[] = [];
+    setTecnicos((prev) => {
+      const mapa = new Map<string, Tecnico>();
+      prev.forEach((t) => {
+        const key = normalizarMatricula(t.matricula) || t.id;
+        mapa.set(key, t);
+      });
+      normalizados.forEach((t) => {
+        const key = normalizarMatricula(t.matricula) || t.id;
+        const existente = mapa.get(key);
+        mapa.set(key, existente ? { ...existente, ...t, id: existente.id, status: 'ativo' } : t);
+      });
+      listaFinal = Array.from(mapa.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+      saveTecnicosLocalCache(listaFinal);
+      return listaFinal;
+    });
+
+    if (!isOffline) {
+      try {
+        const { writeBatch } = await import('firebase/firestore');
+        const paraGravar = listaFinal.length > 0 ? listaFinal : normalizados;
+        const TAMANHO_LOTE = 400;
+        for (let i = 0; i < paraGravar.length; i += TAMANHO_LOTE) {
+          const fatia = paraGravar.slice(i, i + TAMANHO_LOTE);
+          const batch = writeBatch(db);
+          fatia.forEach((tec) => {
+            batch.set(doc(db, 'tecnicos', tec.id), tec);
+          });
+          await batch.commit();
+        }
+      } catch (err) {
+        console.error('Erro ao gravar lote de técnicos no Firestore:', err);
+      }
+
+      fetch('/api/tecnicos/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(listaFinal.length > 0 ? listaFinal : normalizados)
+      }).catch(() => {});
+    }
+
+    addToast(
+      'Importação Concluída',
+      `${normalizados.length} técnicos importados`,
+      'success'
+    );
   };
 
   const handleUpdateTecnico = async (updatedTec: Tecnico) => {
@@ -1144,6 +1278,7 @@ export default function App() {
                   onSaveReport={handleSaveReport}
                   tecnicos={tecnicos}
                   onAddTecnico={handleAddTecnico}
+                  onAddTecnicosBulk={handleAddTecnicosBulk}
                   onUpdateTecnico={handleUpdateTecnico}
                   onDeleteTecnico={handleDeleteTecnico}
                   onRestoreDefaultTecnicos={handleRestoreDefaultTecnicos}

@@ -1,11 +1,29 @@
 import { GrupoTecnico } from '../types';
 
 /**
- * Remove acentos e normaliza string para comparação
+ * Remove acentos, espaços extras e normaliza string para comparação em maiúsculas
  */
 export function removerAcentos(str: string): string {
   if (!str) return '';
-  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+}
+
+/**
+ * Converte CHAPA/matrícula para texto e completa com zeros à esquerda até 6 dígitos (ex.: 25918 -> "025918")
+ */
+export function normalizarMatricula(valor: string | number | undefined | null): string {
+  if (valor === undefined || valor === null) return '';
+  const limpo = String(valor).trim();
+  if (!limpo) return '';
+  if (/^\d+$/.test(limpo)) {
+    return limpo.padStart(6, '0');
+  }
+  return limpo;
 }
 
 /**
