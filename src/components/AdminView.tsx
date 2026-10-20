@@ -6,12 +6,13 @@ import {
   Trash2, Plus, Check, Save, X, UserCheck, Users, Edit3, RotateCcw,
   FileSpreadsheet, Upload, AlertCircle, FolderTree, Download
 } from 'lucide-react';
-import { Report, Preventiva, User, Tecnico, Parada, GrupoTecnico } from '../types';
+import { Report, Preventiva, User, Tecnico, Parada, GrupoTecnico, Equipamento } from '../types';
 import { PRESET_PREVENTIVAS } from '../data/presetPreventivas';
 import { ReportCardAccordion } from './ReportCardAccordion';
 import { OperationalDashboard } from './OperationalDashboard';
 import { ParadasView } from './ParadasView';
 import { CatalogoAdminTab } from './CatalogoAdminTab';
+import { EquipamentosAdminTab } from './EquipamentosAdminTab';
 import { processarPlanilhaEfetivo, ResumoImportacao } from '../lib/planilhaEfetivoParser';
 import { removerAcentos, formatarNomeSobrenome, classificarGrupoFuncao } from '../lib/uEmDataUtils';
 
@@ -40,6 +41,10 @@ interface AdminViewProps {
   paradas?: Parada[];
   onSaveParada?: (p: Parada) => void;
   onDeleteParada?: (id: string) => void;
+  // Cadastro de Equipamentos
+  equipamentos?: Equipamento[];
+  onSaveEquipamento?: (eq: Equipamento) => void;
+  onImportEquipamentos?: (eqs: Equipamento[]) => void;
 }
 
 export function AdminView({ 
@@ -65,9 +70,12 @@ export function AdminView({
   onClearAllDatabase,
   paradas = [],
   onSaveParada,
-  onDeleteParada
+  onDeleteParada,
+  equipamentos = [],
+  onSaveEquipamento,
+  onImportEquipamentos
 }: AdminViewProps) {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'paradas' | 'preventivas' | 'tecnicos' | 'relatorios' | 'catalogo'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'paradas' | 'preventivas' | 'tecnicos' | 'equipamentos' | 'relatorios' | 'catalogo'>('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
   const [deleteConfirmPreventiva, setDeleteConfirmPreventiva] = useState<Preventiva | null>(null);
   const [showConfirmClearPreventivas, setShowConfirmClearPreventivas] = useState(false);
@@ -288,6 +296,19 @@ export function AdminView({
               </button>
 
               <button
+                id="btn-tab-equipamentos"
+                onClick={() => setActiveTab('equipamentos')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl font-medium text-[11px] uppercase tracking-wider transition whitespace-nowrap cursor-pointer ${
+                  activeTab === 'equipamentos' 
+                    ? 'bg-[var(--um-verde-principal)] text-[var(--um-branco)] shadow-xs' 
+                    : 'text-[var(--um-cinza-texto)] hover:bg-[var(--um-branco)] hover:text-[var(--um-cinza-escuro)]'
+                }`}
+              >
+                <Wrench className="w-3.5 h-3.5 shrink-0" />
+                <span>🚜 EQUIPAMENTOS ({equipamentos.filter(e => e.ativo !== false).length})</span>
+              </button>
+
+              <button
                 id="btn-tab-catalogo"
                 onClick={() => setActiveTab('catalogo')}
                 className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl font-medium text-[11px] uppercase tracking-wider transition whitespace-nowrap cursor-pointer ${
@@ -355,6 +376,17 @@ export function AdminView({
           onDeleteParada={onDeleteParada || (() => {})}
           currentUser={currentUser}
           reports={reports}
+          equipamentos={equipamentos}
+        />
+      )}
+
+      {activeTab === 'equipamentos' && (
+        <EquipamentosAdminTab
+          equipamentos={equipamentos}
+          reports={reports}
+          paradas={paradas}
+          onSaveEquipamento={onSaveEquipamento || (() => {})}
+          onImportEquipamentos={onImportEquipamentos || (() => {})}
         />
       )}
 

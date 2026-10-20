@@ -1,13 +1,15 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { User, ChevronDown, Check, Search, X, Edit3, Sparkles } from 'lucide-react';
+import { User, ChevronDown, Check, Search, X, Edit3, Sparkles, Upload } from 'lucide-react';
 import { Tecnico } from '../types';
 import {
   classificarGrupoFuncao,
   formatarNomeSobrenome,
   isTecnicoDeCampo,
+  normalizarGrupoTecnico,
   normalizarMatricula,
   removerAcentos
 } from '../lib/uEmDataUtils';
+import { getTecnicosIniciaisPadrao } from '../data/tecnicosIniciais';
 
 export interface TechnicianScrollSelectorProps {
   tecnicos: Tecnico[];
@@ -19,6 +21,9 @@ export interface TechnicianScrollSelectorProps {
   isAdmin?: boolean;
   label?: string;
   placeholder?: string;
+  /** Se verdadeiro (ex.: sistema EL/AL ou perfil CREL), exibe a seção ELETRICISTA primeiro */
+  priorizarEletricista?: boolean;
+  onImportarClick?: () => void;
 }
 
 const CHIPS_FILTRO = [
@@ -30,7 +35,31 @@ const CHIPS_FILTRO = [
   'SOLDADOR',
   'INSPETOR',
   'AUXILIAR',
-  'LAVADOR / PINTOR',
+  'LAVADOR/PINTOR',
+  'OPERADOR/MOTORISTA'
+];
+
+const ORDEM_GRUPOS_PADRAO = [
+  'MECÂNICO',
+  'ELETRICISTA',
+  'LUBRIFICADOR',
+  'BORRACHEIRO',
+  'SOLDADOR',
+  'INSPETOR',
+  'AUXILIAR',
+  'LAVADOR/PINTOR',
+  'OPERADOR/MOTORISTA'
+];
+
+const ORDEM_GRUPOS_ELETRICA = [
+  'ELETRICISTA',
+  'MECÂNICO',
+  'LUBRIFICADOR',
+  'BORRACHEIRO',
+  'SOLDADOR',
+  'INSPETOR',
+  'AUXILIAR',
+  'LAVADOR/PINTOR',
   'OPERADOR/MOTORISTA'
 ];
 
@@ -45,7 +74,9 @@ export function TechnicianScrollSelector({
   selectedGrupo = '',
   onChange,
   isAdmin = false,
-  label = 'TÉCNICO RESPONSÁVEL'
+  label = 'TÉCNICO RESPONSÁVEL',
+  priorizarEletricista = false,
+  onImportarClick
 }: TechnicianScrollSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -66,9 +97,9 @@ export function TechnicianScrollSelector({
   const containerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Sincroniza cache local de técnicos para uso offline e carrega último técnico usado
+  // Sincroniza cache local de técnicos para uso offline e garante base padrão caso ainda não sincronizada
   const listaComCache = useMemo(() => {
-    if (tecnicos && tecnicos.length > 0) {
+    if (tecnicos && tecnicos.length > 5) {
       try {
         localStorage.setItem(CACHE_TECNICOS_KEY, JSON.stringify(tecnicos));
         localStorage.setItem('tecnicos', JSON.stringify(tecnicos));
@@ -81,12 +112,19 @@ export function TechnicianScrollSelector({
       const cached = localStorage.getItem(CACHE_TECNICOS_KEY) || localStorage.getItem('tecnicos');
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed as Tecnico[];
+        if (Array.isArray(parsed) && parsed.length > 5) return parsed as Tecnico[];
       }
     } catch {
       // Ignora erro de parse
     }
-    return [];
+    const padrao = getTecnicosIniciaisPadrao();
+    if (tecnicos && tecnicos.length > 0) {
+      const porMat = new Map<string, Tecnico>();
+      padrao.forEach(t => porMat.set(normalizarMatricula(t.matricula) || t.id, t));
+      tecnicos.forEach(t => porMat.set(normalizarMatricula(t.matricula) || t.id, t));
+      return Array.from(porMat.values());
+    }
+    return padrao;
   }, [tecnicos]);
 
   useEffect(() => {
@@ -120,40 +158,36 @@ export function TechnicianScrollSelector({
   }, [isOpen]);
 
   // Normaliza e filtra técnicos elegíveis:
-  // Mostrar os técnicos ATIVOS dos grupos de campo (nunca mostrar Supervisão ou Administrativo no seletor de atendimento)
+  // Mostrar apenas os técnicos ATIVOS dos 9 grupos operacionais de campo (nunca mostrar Supervisão ou Administrativo no seletor de atendimento)
   const tecnicosElegiveis = useMemo(() => {
     return listaComCache
       .map((tec) => {
-        const grupoCalculado = tec.grupo || classificarGrupoFuncao(tec.funcao || 'Mecânico');
+        const grupoNorm = normalizarGrupoTecnico(tec.grupo || '', tec.funcao || 'Mecânico');
         return {
           ...tec,
           nome: formatarNomeSobrenome(tec.nome || ''),
+          funcao: formatarNomeSobrenome(tec.funcao || 'Mecânico'),
           matricula: normalizarMatricula(tec.matricula),
-          grupo: grupoCalculado
+          grupo: grupoNorm
         };
       })
       .filter((tec) => {
         if (!tec.nome) return false;
         if (tec.status === 'inativo') return false;
-        if (!isAdmin) {
-          if (!isTecnicoDeCampo(tec.grupo)) return false;
-        } else {
-          // Mesmo para Admin no seletor de equipe operacional, exclui Supervisão e Administrativo
-          if (tec.grupo === 'SUPERVISÃO' || tec.grupo === 'ADMINISTRATIVO') return false;
-        }
+        if (!isTecnicoDeCampo(tec.grupo)) return false;
         return true;
       })
       .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-  }, [listaComCache, isAdmin]);
+  }, [listaComCache]);
 
-  // Contagem por grupo para exibir nos chips
+  // Contagem por grupo para exibir nos chips e seções
   const contagemPorChip = useMemo(() => {
     const counts: Record<string, number> = { TODOS: tecnicosElegiveis.length };
     CHIPS_FILTRO.forEach((chip) => {
       if (chip !== 'TODOS') counts[chip] = 0;
     });
     tecnicosElegiveis.forEach((tec) => {
-      const g = (tec.grupo || 'MECÂNICO').toUpperCase();
+      const g = normalizarGrupoTecnico(tec.grupo || '', tec.funcao || 'Mecânico');
       if (counts[g] !== undefined) {
         counts[g] += 1;
       }
@@ -179,9 +213,30 @@ export function TechnicianScrollSelector({
       if (!matchesSearch) return false;
 
       if (activeChip === 'TODOS') return true;
-      return (tec.grupo || '').toUpperCase() === activeChip.toUpperCase();
+      const gNorm = normalizarGrupoTecnico(tec.grupo || '', tec.funcao || 'Mecânico');
+      return gNorm === activeChip;
     });
   }, [tecnicosElegiveis, search, activeChip]);
+
+  // Agrupamento em seções quando TODOS está selecionado
+  const secoesPorGrupo = useMemo(() => {
+    const ordem = priorizarEletricista ? ORDEM_GRUPOS_ELETRICA : ORDEM_GRUPOS_PADRAO;
+    const mapa = new Map<string, Tecnico[]>();
+    ordem.forEach(g => mapa.set(g, []));
+
+    filteredTecnicos.forEach(tec => {
+      const g = normalizarGrupoTecnico(tec.grupo || '', tec.funcao || 'Mecânico');
+      if (!mapa.has(g)) mapa.set(g, []);
+      mapa.get(g)!.push(tec);
+    });
+
+    return Array.from(mapa.entries())
+      .filter(([, lista]) => lista.length > 0)
+      .map(([grupo, lista]) => ({
+        grupo,
+        lista: lista.slice().sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+      }));
+  }, [filteredTecnicos, priorizarEletricista]);
 
   // Verifica se o último técnico salvo no aparelho está disponível na lista de elegíveis
   const sugestaoUltimoTecnico = useMemo(() => {
@@ -197,8 +252,8 @@ export function TechnicianScrollSelector({
   const handleSelect = (tec: Tecnico) => {
     const nomeFmt = formatarNomeSobrenome(tec.nome);
     const matFmt = normalizarMatricula(tec.matricula);
-    const grupoFmt = tec.grupo || classificarGrupoFuncao(tec.funcao || 'Mecânico');
-    const funcaoFmt = tec.funcao || 'Mecânico';
+    const grupoFmt = normalizarGrupoTecnico(tec.grupo || '', tec.funcao || 'Mecânico');
+    const funcaoFmt = formatarNomeSobrenome(tec.funcao || 'Mecânico');
 
     try {
       localStorage.setItem(
@@ -247,27 +302,39 @@ export function TechnicianScrollSelector({
     }
   };
 
-  const getGrupoBadge = (grupo?: string) => {
-    const g = (grupo || 'MECÂNICO').toUpperCase();
-    if (g.includes('MECÂNICO') || g.includes('MECANICO')) {
-      return { bg: 'bg-[#19502F]/10 text-[#19502F] border-[#19502F]/20' };
-    }
-    if (g.includes('ELETRICISTA')) {
-      return { bg: 'bg-[#E2A937]/15 text-[#B5872C] border-[#E2A937]/30' };
-    }
-    if (g.includes('LUBRIFICADOR')) {
-      return { bg: 'bg-[#466C53]/15 text-[#466C53] border-[#466C53]/30' };
-    }
-    if (g.includes('BORRACHEIRO')) {
-      return { bg: 'bg-[#FF7725]/15 text-[#C44A00] border-[#FF7725]/30' };
-    }
-    if (g.includes('SOLDADOR')) {
-      return { bg: 'bg-[#1E88E5]/15 text-[#1565C0] border-[#1E88E5]/30' };
-    }
-    if (g.includes('INSPETOR')) {
-      return { bg: 'bg-[#8E24AA]/15 text-[#6A1B9A] border-[#8E24AA]/30' };
-    }
-    return { bg: 'bg-[#575756]/10 text-[#575756] border-[#575756]/20' };
+  const renderLinhaTecnico = (tec: Tecnico) => {
+    const isSelected = tec.nome === selectedNome;
+    const funcaoOriginal = formatarNomeSobrenome(tec.funcao || 'Mecânico');
+    return (
+      <button
+        key={tec.id || tec.matricula || tec.nome}
+        type="button"
+        onClick={() => handleSelect(tec)}
+        className={`w-full px-4 py-3 flex items-center justify-between text-left transition-colors cursor-pointer min-h-[52px] ${
+          isSelected
+            ? 'bg-[var(--um-verde-principal)]/10 text-[var(--um-verde-principal)]'
+            : 'hover:bg-[var(--um-fundo)] text-[var(--um-cinza-escuro)]'
+        }`}
+      >
+        <div className="min-w-0 pr-3 flex items-center gap-2 flex-wrap">
+          <span className="font-bold text-[14px] text-[var(--um-cinza-escuro)]">
+            {tec.nome}
+          </span>
+          {tec.matricula && (
+            <span className="text-[11px] font-mono font-semibold text-[var(--um-cinza-texto)] bg-[var(--um-fundo)] px-2 py-0.5 rounded border border-[var(--um-cinza-claro)]">
+              Mat. {tec.matricula}
+            </span>
+          )}
+          <span className="text-[12px] text-[var(--um-cinza-texto)]">
+            {funcaoOriginal}
+          </span>
+        </div>
+
+        {isSelected && (
+          <Check className="w-4 h-4 text-[var(--um-verde-principal)] shrink-0" />
+        )}
+      </button>
+    );
   };
 
   return (
@@ -355,14 +422,9 @@ export function TechnicianScrollSelector({
                         Mat. {normalizarMatricula(selectedMatricula)}
                       </span>
                     )}
-                    {(selectedGrupo || selectedFuncao) && (
-                      <span
-                        className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${
-                          getGrupoBadge(selectedGrupo || classificarGrupoFuncao(selectedFuncao)).bg
-                        }`}
-                      >
-                        {selectedGrupo || classificarGrupoFuncao(selectedFuncao)}
-                        {selectedFuncao ? ` · ${formatarNomeSobrenome(selectedFuncao)}` : ''}
+                    {selectedFuncao && (
+                      <span className="text-[12px] text-[var(--um-cinza-texto)]">
+                        {formatarNomeSobrenome(selectedFuncao)}
                       </span>
                     )}
                   </div>
@@ -442,8 +504,8 @@ export function TechnicianScrollSelector({
               )}
             </div>
 
-            {/* CHIPS DE FILTRO POR GRUPO COM QUANTIDADE */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+            {/* CHIPS DE FILTRO POR GRUPO COM QUANTIDADE (quebram em 2 linhas, sem barra horizontal) */}
+            <div className="flex flex-wrap items-center gap-1.5">
               {CHIPS_FILTRO.map((chip) => {
                 const count = contagemPorChip[chip] ?? 0;
                 if (chip !== 'TODOS' && count === 0) return null;
@@ -453,7 +515,7 @@ export function TechnicianScrollSelector({
                     key={chip}
                     type="button"
                     onClick={() => setActiveChip(chip)}
-                    className={`px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-full whitespace-nowrap cursor-pointer transition-colors border flex items-center gap-1.5 ${
+                    className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-full cursor-pointer transition-colors border flex items-center gap-1 ${
                       isActive
                         ? 'bg-[var(--um-verde-principal)] text-[var(--um-branco)] border-[var(--um-verde-principal)]'
                         : 'bg-[var(--um-branco)] text-[var(--um-cinza-texto)] border-[var(--um-cinza-claro)] hover:border-[var(--um-verde-secundario)]'
@@ -461,7 +523,7 @@ export function TechnicianScrollSelector({
                   >
                     <span>{chip}</span>
                     <span
-                      className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                      className={`text-[9px] px-1.5 py-0.2 rounded-full ${
                         isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
                       }`}
                     >
@@ -473,65 +535,50 @@ export function TechnicianScrollSelector({
             </div>
           </div>
 
-          {/* LISTA DE TÉCNICOS (Itens grandes para toque com luva) */}
-          <div className="max-h-72 overflow-y-auto divide-y divide-[var(--um-cinza-claro)]/50">
+          {/* LISTA DE TÉCNICOS */}
+          <div className="max-h-80 overflow-y-auto">
             {tecnicosElegiveis.length === 0 ? (
-              <div className="p-6 text-center text-[var(--um-cinza-texto)] space-y-2">
+              <div className="p-6 text-center text-[var(--um-cinza-texto)] space-y-3">
                 <p className="text-[13px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3">
-                  Nenhum técnico cadastrado. Peça ao Admin para importar a planilha de efetivo na aba TÉCNICOS.
+                  Nenhum técnico cadastrado. Peça ao Admin para importar a lista na aba TÉCNICOS.
                 </p>
+                {isAdmin && onImportarClick && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsOpen(false);
+                      onImportarClick();
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[var(--um-verde-principal)] text-white text-[12px] font-bold uppercase rounded-xl cursor-pointer hover:bg-[var(--um-verde-secundario)]"
+                  >
+                    <Upload className="w-3.5 h-3.5" /> Importar
+                  </button>
+                )}
               </div>
             ) : filteredTecnicos.length === 0 ? (
               <div className="p-6 text-center text-[var(--um-cinza-texto)] space-y-1">
                 <p className="text-[13px] font-medium">Nenhum técnico encontrado para esse filtro.</p>
                 <p className="text-[11px]">Tente limpar a busca ou selecionar o grupo TODOS.</p>
               </div>
-            ) : (
-              filteredTecnicos.map((tec) => {
-                const isSelected = tec.nome === selectedNome;
-                const grupoExibicao = tec.grupo || classificarGrupoFuncao(tec.funcao);
-                const funcaoFormatada = formatarNomeSobrenome(tec.funcao || 'Mecânico');
-                const badgeStyle = getGrupoBadge(grupoExibicao);
-                return (
-                  <button
-                    key={tec.id || tec.matricula || tec.nome}
-                    type="button"
-                    onClick={() => handleSelect(tec)}
-                    className={`w-full px-4 py-3.5 flex items-center justify-between text-left transition-colors cursor-pointer min-h-[56px] ${
-                      isSelected
-                        ? 'bg-[var(--um-verde-principal)]/10 text-[var(--um-verde-principal)]'
-                        : 'hover:bg-[var(--um-fundo)] text-[var(--um-cinza-escuro)]'
-                    }`}
-                  >
-                    <div className="min-w-0 pr-3">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold text-[14px] text-[var(--um-cinza-escuro)]">
-                          {tec.nome}
-                        </span>
-                        {tec.matricula && (
-                          <span className="text-[11px] font-mono font-semibold text-[var(--um-cinza-texto)] bg-[var(--um-fundo)] px-2 py-0.5 rounded border border-[var(--um-cinza-claro)]">
-                            Mat. {tec.matricula}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 flex-wrap mt-1">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${badgeStyle.bg}`}>
-                          {grupoExibicao} · {funcaoFormatada}
-                        </span>
-                        {tec.secao && (
-                          <span className="text-[11px] text-[var(--um-cinza-texto)] truncate">
-                            {tec.secao}
-                          </span>
-                        )}
-                      </div>
+            ) : activeChip === 'TODOS' ? (
+              <div className="divide-y divide-[var(--um-cinza-claro)]/50">
+                {secoesPorGrupo.map(({ grupo, lista }) => (
+                  <div key={grupo}>
+                    <div className="sticky top-0 z-10 px-4 py-1.5 bg-[#f2f3f2] border-y border-[var(--um-cinza-claro)]/60 flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-[#004d2c]">
+                        {grupo} ({lista.length})
+                      </span>
                     </div>
-
-                    {isSelected && (
-                      <Check className="w-5 h-5 text-[var(--um-verde-principal)] shrink-0" />
-                    )}
-                  </button>
-                );
-              })
+                    <div className="divide-y divide-[var(--um-cinza-claro)]/40">
+                      {lista.map(tec => renderLinhaTecnico(tec))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="divide-y divide-[var(--um-cinza-claro)]/50">
+                {filteredTecnicos.map(tec => renderLinhaTecnico(tec))}
+              </div>
             )}
           </div>
 
@@ -539,7 +586,7 @@ export function TechnicianScrollSelector({
           <div className="p-2.5 bg-[var(--um-fundo)] border-t border-[var(--um-cinza-claro)] flex items-center justify-between text-[11px] text-[var(--um-cinza-texto)]">
             <span>
               Mostrando <strong className="font-medium">{filteredTecnicos.length}</strong> de{' '}
-              {tecnicosElegiveis.length} técnicos ativos de campo
+              {tecnicosElegiveis.length} técnicos de campo
             </span>
 
             {/* Botão de digitação manual apenas para Admin */}

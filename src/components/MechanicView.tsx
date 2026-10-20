@@ -36,12 +36,14 @@ import {
   Preventiva,
   Tecnico,
   Parada,
-  FalhaCatalogada
+  FalhaCatalogada,
+  Equipamento
 } from '../types';
 import { ReportCardAccordion } from './ReportCardAccordion';
 import { SeletorTecnico } from './SeletorTecnico';
 import { SeletorCatalogo } from './SeletorCatalogo';
 import { ResumoOperacionalControle } from './ResumoOperacionalControle';
+import { ModalAbrirParada } from './ModalAbrirParada';
 import {
   formatarFalhaCard,
   perfilDaTag,
@@ -80,6 +82,7 @@ interface MechanicViewProps {
   tecnicos?: Tecnico[];
   paradas?: Parada[];
   onSaveParada?: (p: Parada) => void;
+  equipamentos?: Equipamento[];
 }
 
 const ULTIMA_TURMA_KEY = 'rft_ultima_turma';
@@ -187,7 +190,8 @@ export function MechanicView({
   onDeleteReport,
   tecnicos = [],
   paradas = [],
-  onSaveParada
+  onSaveParada,
+  equipamentos = []
 }: MechanicViewProps) {
   // Navegação principal do Controle:
   // 'painel' (Tela Inicial B1 + B2 + B3), 'meus_relatorios' (B4), 'atendimento' (Tela C2)
@@ -1901,12 +1905,12 @@ export function MechanicView({
                 )}
               </div>
 
-              {/* Nº OM/OS no cabeçalho travado (se a parada já tiver OM/OS) */}
+              {/* Nº Ordem de serviço no cabeçalho travado (se a parada já tiver Ordem de serviço) */}
               {activeParada?.numeroOS && !destravarCabecalho.om && (
                 <div className="p-3 rounded-xl bg-gray-50 border border-gray-200 flex items-start justify-between">
                   <div>
                     <span className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1">
-                      <Lock className="w-3 h-3" /> Nº OM / OS
+                      <Lock className="w-3 h-3" /> Ordem de serviço
                     </span>
                     <p className="font-mono font-black text-sm text-gray-900 mt-0.5">
                       {atendimentoAtual.om || activeParada.numeroOS}
@@ -2133,11 +2137,11 @@ export function MechanicView({
             </h4>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Nº OM/OS – só aparece aqui se a parada ainda não tiver OM/OS (ou se destravou para corrigir) */}
+              {/* Nº Ordem de serviço – só aparece aqui se a parada ainda não tiver Ordem de serviço (ou se destravou para corrigir) */}
               {(!activeParada?.numeroOS || destravarCabecalho.om) && (
                 <div>
                   <label className="block text-xs font-extrabold text-gray-800 uppercase tracking-wider mb-1">
-                    Nº OM / OS
+                    Nº da Ordem de serviço (Opcional)
                   </label>
                   <input
                     type="text"
@@ -2466,6 +2470,12 @@ export function MechanicView({
                   selectedGrupo={tecnicoGrupo}
                   isAdmin={user.role === 'admin'}
                   label="TÉCNICO RESPONSÁVEL"
+                  priorizarEletricista={Boolean(
+                    iniciandoParada.falha?.sistema?.codigo === 'EL' ||
+                    iniciandoParada.falha?.sistema?.codigo === 'AL' ||
+                    iniciandoParada.falha?.perfil === 'CREL' ||
+                    perfilDaTag(iniciandoParada.tag) === 'CREL'
+                  )}
                   onChange={(nome, funcao, matricula, grupo) => {
                     setTecnicoNome(nome);
                     setTecnicoFuncao(funcao);
@@ -3131,182 +3141,61 @@ export function MechanicView({
       )}
 
       {/* =========================================================================
-          C3. MODAL "ABRIR NOVA PARADA" PELO TÉCNICO
+          C3. MODAL "ABRIR PARADA DE EQUIPAMENTO" PELO TÉCNICO (NOVO PROTÓTIPO APROVADO)
           ========================================================================= */}
-      {showNovaParadaModal && (
-        <div className="fixed inset-0 bg-black/65 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl w-full max-w-xl shadow-2xl border border-gray-200 overflow-hidden my-auto max-h-[92vh] flex flex-col">
-            <div className="bg-[#19502F] p-5 text-white flex items-center justify-between shrink-0">
-              <div>
-                <h3 className="text-sm font-black uppercase tracking-wider flex items-center gap-2">
-                  <Plus className="w-5 h-5" />
-                  Abrir Nova Parada de Equipamento
-                </h3>
-                <p className="text-[11px] text-emerald-100 mt-0.5">
-                  Para equipamentos que pararam e ainda não estão na lista
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowNovaParadaModal(false)}
-                className="text-white/80 hover:text-white bg-black/20 p-1.5 rounded-full cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      <ModalAbrirParada
+        isOpen={showNovaParadaModal}
+        onClose={() => setShowNovaParadaModal(false)}
+        equipamentos={equipamentos}
+        paradasAbertas={paradas.filter(p => p.situacao === 'ABERTA')}
+        modoTecnico={true}
+        defaultIniciarAtendimento={true}
+        onAbrirParadaExistente={(existente) => {
+          setShowNovaParadaModal(false);
+          setFiltroFrenteParada('TODAS');
+          setFiltroTagParada('');
+          setHighlightParadaId(existente.id);
+          setTimeout(() => {
+            const cardEl = document.getElementById(`card-parada-${existente.id}`);
+            if (cardEl) cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, 150);
+          setTimeout(() => setHighlightParadaId(null), 5000);
+          handleAbrirModalIniciar(existente);
+        }}
+        onConfirm={(dados) => {
+          const agoraIso = new Date().toISOString();
+          const usuarioCriador = tecnicoNome.trim() || user.name || user.username;
+          const nova = criarNovaParada({
+            tag: dados.tag,
+            modelo: dados.modelo,
+            frente: dados.frente,
+            inicioParada: dados.inicioParadaIso,
+            numeroOS: dados.ordemServico,
+            ordemServico: dados.ordemServico,
+            sintomaInicial: dados.sintomaInicial,
+            falha: dados.falha,
+            previsaoLiberacao: dados.previsaoLiberacao,
+            usuario: usuarioCriador,
+            matricula: tecnicoMatricula || undefined,
+            origem: 'TECNICO',
+            codigoInicial: dados.codigoInicial || 'HMC 9130',
+            complementoInicial: dados.complementoTexto || 'Aberta pelo técnico em campo',
+            horaToqueIso: agoraIso
+          });
 
-            <div className="p-5 space-y-4 overflow-y-auto">
-              <div>
-                <label className="block text-xs font-extrabold text-gray-800 uppercase tracking-wider mb-1">
-                  TAG do Equipamento *
-                </label>
-                <input
-                  type="text"
-                  value={novaParadaTag}
-                  onChange={(e) => {
-                    const norm = normalizarTag(e.target.value);
-                    setNovaParadaTag(norm);
-                    setNovaParadaFrente(derivarFrenteDaTag(norm));
-                  }}
-                  placeholder="Ex: EH-4050, CR-3114, CR-2520"
-                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-sm font-black uppercase font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#19502F]"
-                  required
-                  autoFocus
-                />
-                <div className="flex flex-wrap gap-1 mt-1.5">
-                  {presetEquipments.map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => {
-                        setNovaParadaTag(t);
-                        setNovaParadaFrente(derivarFrenteDaTag(t));
-                      }}
-                      className="px-2 py-0.5 text-[10px] font-mono font-bold bg-gray-100 hover:bg-emerald-50 text-gray-700 rounded-md border border-gray-200 cursor-pointer"
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
-              </div>
+          if (onSaveParada) {
+            onSaveParada(nova);
+          }
 
-              {paradaDuplicadaExistente && (
-                <div className="p-3.5 bg-amber-50 border-2 border-amber-400 rounded-2xl space-y-2">
-                  <div className="flex items-start gap-2 text-amber-950">
-                    <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-xs font-black uppercase">
-                        Já existe parada aberta para esta TAG ({paradaDuplicadaExistente.tag})
-                      </p>
-                      <p className="text-[11px] text-amber-900 mt-0.5">
-                        Aberta às {formatarHoraPtBr(paradaDuplicadaExistente.inicioParada)} • Status:{' '}
-                        <strong>{getSegmentoAtual(paradaDuplicadaExistente).codigo}</strong>
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowNovaParadaModal(false);
-                      handleAbrirModalIniciar(paradaDuplicadaExistente);
-                    }}
-                    className="w-full py-2.5 px-3 bg-amber-500 hover:bg-amber-600 text-emerald-950 font-black text-xs uppercase rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                  >
-                    <Play className="w-4 h-4 fill-current" />
-                    <span>Iniciar Atendimento desta Parada Agora</span>
-                  </button>
-                </div>
-              )}
+          setShowNovaParadaModal(false);
+          setHighlightParadaId(nova.id);
+          setTimeout(() => setHighlightParadaId(null), 4000);
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-extrabold text-gray-700 uppercase mb-1">
-                    Hora Real da Parada *
-                  </label>
-                  <input
-                    type="time"
-                    value={novaParadaHoraReal}
-                    onChange={(e) => setNovaParadaHoraReal(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm font-black font-mono"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-extrabold text-gray-700 uppercase mb-1">
-                    Frente
-                  </label>
-                  <input
-                    type="text"
-                    value={novaParadaFrente}
-                    readOnly
-                    className="w-full px-3 py-2 bg-gray-100 border border-gray-250 rounded-xl text-sm font-bold text-gray-700"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-extrabold text-gray-700 uppercase mb-1">
-                  Status Inicial (Padrão: HMC 9130 AG ATENDIMENTO)
-                </label>
-                <select
-                  value={novaParadaCodigo}
-                  onChange={(e) => setNovaParadaCodigo(e.target.value)}
-                  className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-bold text-gray-900"
-                >
-                  <option value="HMC 9130">HMC 9130 – AG ATENDIMENTO (Padrão)</option>
-                  <option value="MPS 7130">MPS 7130 – AG ATENDIMENTO PREVENTIVA</option>
-                  <option value="HMC 9118">HMC 9118 – AG PEÇAS</option>
-                  <option value="HMC 9120">HMC 9120 – AG OPERAÇÃO / SEGREGAÇÃO</option>
-                  <option value="HMC 9115">HMC 9115 – AG LIBERAÇÃO DE ACESSO</option>
-                  <option value="HMC 9135">HMC 9135 – AG PTS</option>
-                </select>
-              </div>
-
-              <div>
-                <SeletorCatalogo
-                  tag={novaParadaTag}
-                  value={novaParadaFalha}
-                  complemento={novaParadaSintoma}
-                  obrigatorio={false}
-                  isAdmin={user.role === 'admin'}
-                  labelTitulo="SINTOMA PELO CATÁLOGO DA TAG (OPCIONAL NA ABERTURA)"
-                  onChange={(falha, resumo, comp) => {
-                    setNovaParadaFalha(falha);
-                    setNovaParadaSintoma(resumo || comp);
-                  }}
-                />
-              </div>
-
-              <div className="pt-3 border-t border-gray-200 flex flex-wrap justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowNovaParadaModal(false)}
-                  className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs uppercase rounded-xl cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  disabled={!novaParadaTag.trim() || !!paradaDuplicadaExistente}
-                  onClick={() => criarParadaPeloTecnico(false)}
-                  className="px-4 py-2.5 bg-white border border-[#19502F] text-[#19502F] hover:bg-emerald-50 disabled:opacity-40 font-black text-xs uppercase rounded-xl cursor-pointer"
-                >
-                  Apenas Criar Parada
-                </button>
-                <button
-                  type="button"
-                  disabled={!novaParadaTag.trim() || !!paradaDuplicadaExistente}
-                  onClick={() => criarParadaPeloTecnico(true)}
-                  className="px-5 py-2.5 bg-[#19502F] hover:bg-emerald-950 disabled:opacity-40 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>Iniciar atendimento agora</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+          if (dados.iniciarAtendimentoAgora) {
+            handleAbrirModalIniciar(nova);
+          }
+        }}
+      />
 
       {/* LIGHTBOX DE FOTOS */}
       {zoomedImage && (

@@ -16,8 +16,9 @@ export const SAMPLE_MOCK_NAMES = new Set([
   'valdeir santos'
 ]);
 
-export function isSampleMockTecnico(tec: { id?: string; nome?: string }): boolean {
+export function isSampleMockTecnico(tec: { id?: string; nome?: string; matricula?: string }): boolean {
   if (!tec) return false;
+  if (tec.matricula && /^\d{4,6}$/.test(String(tec.matricula).trim())) return false;
   if (tec.id && SAMPLE_MOCK_TECNICO_IDS.includes(tec.id)) return true;
   if (tec.nome && SAMPLE_MOCK_NAMES.has(tec.nome.trim().toLowerCase())) return true;
   return false;

@@ -50,9 +50,10 @@ export function classificarGrupoFuncao(cargoOriginal: string): GrupoTecnico {
   // SUPERVISÃO
   if (
     norm.includes('SUPERVISOR') ||
-    norm.includes('CONTROLADOR DE MANUTENCAO') ||
+    norm.includes('CONTROLADOR') ||
     norm.includes('GERENTE') ||
-    norm.includes('ENGENHEIRO')
+    norm.includes('ENGENHEIRO') ||
+    norm === 'SUPERVISAO'
   ) {
     return 'SUPERVISÃO';
   }
@@ -66,6 +67,16 @@ export function classificarGrupoFuncao(cargoOriginal: string): GrupoTecnico {
     return 'ADMINISTRATIVO';
   }
 
+  // BORRACHEIRO (verificar antes de MECÂNICO por causa de MECANICO BORRACHEIRO)
+  if (norm.includes('BORRACHEIRO') || norm.includes('BORRACHARIA')) {
+    return 'BORRACHEIRO';
+  }
+
+  // MECÂNICO
+  if (norm.includes('MECANICO')) {
+    return 'MECÂNICO';
+  }
+
   // ELETRICISTA
   if (norm.includes('ELETRICISTA')) {
     return 'ELETRICISTA';
@@ -74,11 +85,6 @@ export function classificarGrupoFuncao(cargoOriginal: string): GrupoTecnico {
   // LUBRIFICADOR
   if (norm.includes('LUBRIFICA') || norm.includes('LUBRIFICADOR')) {
     return 'LUBRIFICADOR';
-  }
-
-  // BORRACHEIRO
-  if (norm.includes('BORRACHEIRO') || norm.includes('BORRACHARIA')) {
-    return 'BORRACHEIRO';
   }
 
   // SOLDADOR
@@ -91,9 +97,9 @@ export function classificarGrupoFuncao(cargoOriginal: string): GrupoTecnico {
     return 'INSPETOR';
   }
 
-  // LAVADOR / PINTOR
+  // LAVADOR/PINTOR
   if (norm.includes('LAVADOR') || norm.includes('PINTOR')) {
-    return 'LAVADOR / PINTOR';
+    return 'LAVADOR/PINTOR';
   }
 
   // OPERADOR/MOTORISTA
@@ -116,17 +122,12 @@ export function classificarGrupoFuncao(cargoOriginal: string): GrupoTecnico {
     return 'AUXILIAR';
   }
 
-  // MECÂNICO
-  if (norm.includes('MECANICO')) {
-    return 'MECÂNICO';
-  }
-
   return 'OUTROS';
 }
 
 /**
  * Grupos que atuam diretamente em campo (podem ser técnicos de atendimento no perfil Controle)
- * Supervisão e Administrativo são excluídos (Regra 1.5).
+ * Supervisão e Administrativo são excluídos (Regra 7.2).
  */
 export const GRUPOS_CAMPO: GrupoTecnico[] = [
   'MECÂNICO',
@@ -136,13 +137,32 @@ export const GRUPOS_CAMPO: GrupoTecnico[] = [
   'SOLDADOR',
   'INSPETOR',
   'AUXILIAR',
-  'LAVADOR / PINTOR',
+  'LAVADOR/PINTOR',
   'OPERADOR/MOTORISTA'
 ];
 
+export function normalizarGrupoTecnico(grupoOuFuncao?: string, funcaoFallback?: string): GrupoTecnico {
+  const g = removerAcentos(grupoOuFuncao || '');
+  if (g === 'MECANICO') return 'MECÂNICO';
+  if (g === 'ELETRICISTA') return 'ELETRICISTA';
+  if (g === 'LUBRIFICADOR') return 'LUBRIFICADOR';
+  if (g === 'BORRACHEIRO') return 'BORRACHEIRO';
+  if (g === 'SOLDADOR') return 'SOLDADOR';
+  if (g === 'INSPETOR') return 'INSPETOR';
+  if (g === 'AUXILIAR') return 'AUXILIAR';
+  if (g === 'LAVADOR/PINTOR' || g === 'LAVADOR / PINTOR') return 'LAVADOR/PINTOR';
+  if (g === 'OPERADOR/MOTORISTA' || g === 'OPERADOR / MOTORISTA') return 'OPERADOR/MOTORISTA';
+  if (g === 'SUPERVISAO') return 'SUPERVISÃO';
+  if (g === 'ADMINISTRATIVO') return 'ADMINISTRATIVO';
+  if (funcaoFallback) return classificarGrupoFuncao(funcaoFallback);
+  if (grupoOuFuncao) return classificarGrupoFuncao(grupoOuFuncao);
+  return 'OUTROS';
+}
+
 export function isTecnicoDeCampo(grupo?: string): boolean {
   if (!grupo) return true;
-  return GRUPOS_CAMPO.includes(grupo as GrupoTecnico);
+  const gNorm = normalizarGrupoTecnico(grupo);
+  return GRUPOS_CAMPO.includes(gNorm);
 }
 
 /**
@@ -172,13 +192,13 @@ export function isTagValida(tag: string): boolean {
 }
 
 /**
- * Deriva a Frente operacional a partir do prefixo da TAG (Regra 2.3)
- * EH -> EH, CR -> CR, PF -> PF, demais -> INFRA
+ * Deriva a Frente operacional a partir do prefixo da TAG (Regra 2)
+ * EH -> EH; CR e CB -> CR; PF -> PF; demais -> INFRA
  */
 export function derivarFrenteDaTag(tag: string): 'EH' | 'CR' | 'PF' | 'INFRA' {
   const norm = normalizarTag(tag);
   if (norm.startsWith('EH-') || norm.startsWith('EH')) return 'EH';
-  if (norm.startsWith('CR-') || norm.startsWith('CR')) return 'CR';
+  if (norm.startsWith('CR-') || norm.startsWith('CR') || norm.startsWith('CB-') || norm.startsWith('CB')) return 'CR';
   if (norm.startsWith('PF-') || norm.startsWith('PF')) return 'PF';
   return 'INFRA';
 }

@@ -4,10 +4,10 @@ import {
   ChevronRight, Calendar, User, Wrench, Shield, CheckCircle2, History,
   Edit2, Trash2, Split, Eye, AlertCircle, RefreshCw, Layers
 } from 'lucide-react';
-import { Parada, Segmento, ResponsavelClasse, User as UserType, Report, FalhaCatalogada } from '../types';
+import { Parada, Segmento, ResponsavelClasse, User as UserType, Report, FalhaCatalogada, Equipamento } from '../types';
 import { CODIGOS_VALE_FLAT, buscarCodigoVale, getFuncaoResponsavelSugerida } from '../data/codigosVale';
 import { formatarFalhaCard, formatarFalhaDetalhe } from '../data/catalogoFalhas';
-import { SeletorCatalogo } from './SeletorCatalogo';
+import { ModalAbrirParada } from './ModalAbrirParada';
 import { UEM_THEME, getResponsabilidadeStyle } from '../theme/uEmTheme';
 import { 
   criarNovaParada, 
@@ -38,6 +38,7 @@ interface ParadasViewProps {
   currentUser: UserType;
   reports?: Report[];
   isTvMode?: boolean;
+  equipamentos?: Equipamento[];
 }
 
 export function ParadasView({
@@ -46,7 +47,8 @@ export function ParadasView({
   onDeleteParada,
   currentUser,
   reports = [],
-  isTvMode = false
+  isTvMode = false,
+  equipamentos = []
 }: ParadasViewProps) {
   // Relógio com atualização a cada 30 segundos (Regra 3.2)
   const [agoraMs, setAgoraMs] = useState<number>(Date.now());
@@ -145,7 +147,7 @@ export function ParadasView({
           'Início da Parada': formatarDataHoraPtBr(p.inicioParada),
           'Fim da Parada': p.fimParada ? formatarDataHoraPtBr(p.fimParada) : 'EM ANDAMENTO',
           'Tempo Total Parado (h)': formatarDuracaoHorasMinutos(durTotalMin),
-          'Nº OM/OS': p.numeroOS || '—',
+          'Ordem de serviço': p.ordemServico || p.numeroOS || '—',
           'Perfil': p.falha?.perfil || '',
           'Sistema': p.falha ? `${p.falha.sistema.codigo} - ${p.falha.sistema.nome}` : '',
           'Componente': p.falha ? `${p.falha.componente.codigo} - ${p.falha.componente.nome}` : '',
@@ -376,9 +378,9 @@ export function ParadasView({
                           </span>
                         )}
                       </div>
-                      {parada.numeroOS && (
+                      {(parada.ordemServico || parada.numeroOS) && (
                         <p className="text-[11px] font-mono text-[var(--um-cinza-texto)] mt-0.5">
-                          OM/OS: {parada.numeroOS}
+                          Ordem de serviço: {parada.ordemServico || parada.numeroOS}
                         </p>
                       )}
                       {formatarFalhaCard(parada.falha, parada.sintomaInicial) && (
@@ -559,17 +561,36 @@ export function ParadasView({
         )}
       </div>
 
-      {/* MODAL 1: ABRIR NOVA PARADA (REGRA 3.4 e) */}
-      {modalNovaParada && (
-        <ModalNovaParada
-          onClose={() => setModalNovaParada(false)}
-          onSalvar={(nova) => {
-            onSaveParada(nova);
-            setModalNovaParada(false);
-          }}
-          currentUser={currentUser}
-        />
-      )}
+      {/* MODAL 1: ABRIR NOVA PARADA (NOVO MODAL APROVADO) */}
+      <ModalAbrirParada
+        isOpen={modalNovaParada}
+        onClose={() => setModalNovaParada(false)}
+        equipamentos={equipamentos}
+        paradasAbertas={paradas.filter(p => p.situacao === 'ABERTA')}
+        onAbrirParadaExistente={(paradaExistente) => {
+          setModalNovaParada(false);
+          setParadaSelecionada(paradaExistente);
+        }}
+        onConfirm={(dados) => {
+          const nova = criarNovaParada({
+            tag: dados.tag,
+            modelo: dados.modelo,
+            frente: dados.frente,
+            inicioParada: dados.inicioParadaIso,
+            numeroOS: dados.ordemServico,
+            ordemServico: dados.ordemServico,
+            sintomaInicial: dados.sintomaInicial,
+            falha: dados.falha,
+            previsaoLiberacao: dados.previsaoLiberacao,
+            usuario: currentUser.name || currentUser.username,
+            origem: 'ADMIN',
+            codigoInicial: dados.codigoInicial,
+            complementoInicial: dados.complementoTexto || undefined
+          });
+          onSaveParada(nova);
+          setModalNovaParada(false);
+        }}
+      />
 
       {/* MODAL 2: APLICAR NOVO STATUS / ATALHO RÁPIDO (REGRA 3.4 b) */}
       {modalQuickStatus && (
@@ -654,198 +675,6 @@ export function ParadasView({
 // ----------------------------------------------------
 // SUB-MODAIS DE GESTÃO DE PARADAS
 // ----------------------------------------------------
-
-function ModalNovaParada({
-  onClose,
-  onSalvar,
-  currentUser
-}: {
-  onClose: () => void;
-  onSalvar: (p: Parada) => void;
-  currentUser: UserType;
-}) {
-  const [tag, setTag] = useState('');
-  const [frente, setFrente] = useState('EH');
-  const [horaReal, setHoraReal] = useState(() => {
-    const d = new Date();
-    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-    return d.toISOString().slice(0, 16);
-  });
-  const [numeroOS, setNumeroOS] = useState('');
-  const [sintoma, setSintoma] = useState('');
-  const [falhaCatalogo, setFalhaCatalogo] = useState<FalhaCatalogada | null>(null);
-  const [previsao, setPrevisao] = useState('');
-  const [codigoInicial, setCodigoInicial] = useState('HMC 9130');
-  const [complemento, setComplemento] = useState('');
-
-  const handleTagChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value;
-    const norm = normalizarTag(raw);
-    setTag(norm);
-    const autoFrente = derivarFrenteDaTag(norm);
-    setFrente(autoFrente);
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!tag.trim()) return;
-
-    const normTag = normalizarTag(tag);
-    const nova = criarNovaParada({
-      tag: normTag,
-      frente,
-      inicioParada: new Date(horaReal).toISOString(),
-      numeroOS: numeroOS.trim() || null,
-      sintomaInicial: sintoma.trim() || null,
-      falha: falhaCatalogo,
-      previsaoLiberacao: previsao.trim() || null,
-      usuario: currentUser.name || currentUser.username,
-      codigoInicial,
-      complementoInicial: complemento.trim() || undefined
-    });
-
-    onSalvar(nova);
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-[var(--um-branco)] border border-[var(--um-cinza-claro)] rounded-2xl w-full max-w-2xl p-6 shadow-2xl space-y-4 my-auto max-h-[92vh] overflow-y-auto">
-        <div className="flex items-center justify-between pb-3 border-b border-[var(--um-cinza-claro)]">
-          <h3 className="text-[16px] font-light uppercase text-[var(--um-verde-principal)] flex items-center gap-2">
-            <Plus className="w-5 h-5" /> Abrir Parada de Equipamento
-          </h3>
-          <button onClick={onClose} className="text-[var(--um-cinza-texto)] hover:text-black">✕</button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4 text-[12px]">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[11px] font-medium uppercase text-[var(--um-cinza-texto)] mb-1">
-                TAG do Equipamento *
-              </label>
-              <input
-                type="text"
-                value={tag}
-                onChange={handleTagChange}
-                placeholder="Ex: EH-4050, CR-3114, CR-2520"
-                className="w-full px-3 py-2 bg-[var(--um-fundo)] border border-[var(--um-cinza-claro)] rounded-lg text-[13px] font-bold text-[var(--um-cinza-escuro)] uppercase focus:outline-none focus:border-[var(--um-verde-principal)]"
-                required
-                autoFocus
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] font-medium uppercase text-[var(--um-cinza-texto)] mb-1">
-                Frente Operacional
-              </label>
-              <select
-                value={frente}
-                onChange={(e) => setFrente(e.target.value)}
-                className="w-full px-3 py-2 bg-[var(--um-fundo)] border border-[var(--um-cinza-claro)] rounded-lg text-[13px] text-[var(--um-cinza-escuro)] focus:outline-none focus:border-[var(--um-verde-principal)]"
-              >
-                <option value="EH">EH (Escavadeiras)</option>
-                <option value="CR">CR (Caminhões)</option>
-                <option value="PF">PF (Perfuratrizes)</option>
-                <option value="INFRA">INFRA (Infraestrutura)</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[11px] font-medium uppercase text-[var(--um-cinza-texto)] mb-1">
-                Hora Real da Parada *
-              </label>
-              <input
-                type="datetime-local"
-                value={horaReal}
-                onChange={(e) => setHoraReal(e.target.value)}
-                className="w-full px-3 py-2 bg-[var(--um-fundo)] border border-[var(--um-cinza-claro)] rounded-lg text-[12px] text-[var(--um-cinza-escuro)] focus:outline-none focus:border-[var(--um-verde-principal)]"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] font-medium uppercase text-[var(--um-cinza-texto)] mb-1">
-                Nº da OM/OS (Opcional)
-              </label>
-              <input
-                type="text"
-                value={numeroOS}
-                onChange={(e) => setNumeroOS(e.target.value)}
-                placeholder="Ex: OM-45892"
-                className="w-full px-3 py-2 bg-[var(--um-fundo)] border border-[var(--um-cinza-claro)] rounded-lg text-[12px] text-[var(--um-cinza-escuro)] focus:outline-none focus:border-[var(--um-verde-principal)]"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[11px] font-medium uppercase text-[var(--um-cinza-texto)] mb-1">
-                Status Inicial (Código Vale)
-              </label>
-              <select
-                value={codigoInicial}
-                onChange={(e) => setCodigoInicial(e.target.value)}
-                className="w-full px-3 py-2 bg-[var(--um-fundo)] border border-[var(--um-cinza-claro)] rounded-lg text-[12px] text-[var(--um-cinza-escuro)] focus:outline-none focus:border-[var(--um-verde-principal)]"
-              >
-                <option value="HMC 9130">HMC 9130 – AG ATENDIMENTO</option>
-                <option value="HMC 9000">HMC 9000 – EXEC MANUT CORRETIVA</option>
-                <option value="MPS 7000">MPS 7000 – EXEC MANUT PREVENTIVA</option>
-                <option value="HMC 9120">HMC 9120 – AG OPERACAO</option>
-                <option value="HMC 9118">HMC 9118 – AG PECAS</option>
-                <option value="HMC 9115">HMC 9115 – AG LIBERACAO DE ACESSO</option>
-                <option value="HMC 9135">HMC 9135 – AG PTS</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-[11px] font-medium uppercase text-[var(--um-cinza-texto)] mb-1">
-                Previsão de Liberação
-              </label>
-              <input
-                type="text"
-                value={previsao}
-                onChange={(e) => setPrevisao(e.target.value)}
-                placeholder="Ex: 14:30 ou 2 horas"
-                className="w-full px-3 py-2 bg-[var(--um-fundo)] border border-[var(--um-cinza-claro)] rounded-lg text-[12px] text-[var(--um-cinza-escuro)] focus:outline-none focus:border-[var(--um-verde-principal)]"
-              />
-            </div>
-          </div>
-
-          <div>
-            <SeletorCatalogo
-              tag={tag}
-              value={falhaCatalogo}
-              complemento={complemento}
-              isAdmin={currentUser.role === 'admin'}
-              obrigatorio={false}
-              labelTitulo="SINTOMA INICIAL / CATÁLOGO DE FALHAS (OPCIONAL NA ABERTURA)"
-              onChange={(falha, resumo, comp) => {
-                setFalhaCatalogo(falha);
-                setSintoma(resumo);
-                setComplemento(comp);
-              }}
-            />
-          </div>
-
-          <div className="flex justify-end gap-2.5 pt-3 border-t border-[var(--um-cinza-claro)]">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 bg-[var(--um-fundo)] text-[var(--um-cinza-texto)] rounded-xl cursor-pointer hover:bg-[var(--um-cinza-claro)]"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              className="px-5 py-2 bg-[var(--um-verde-principal)] text-[var(--um-branco)] font-medium rounded-xl cursor-pointer hover:bg-[var(--um-verde-secundario)] shadow-xs"
-            >
-              Confirmar Abertura
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
 
 function ModalAplicarStatus({
   parada,

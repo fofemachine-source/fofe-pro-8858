@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Report, ReportStatus, Preventiva, Tecnico, Parada } from './types';
+import { User, Report, ReportStatus, Preventiva, Tecnico, Parada, Equipamento } from './types';
 import { PRESET_USERS, INITIAL_REPORTS, PRESET_TECNICOS, SAMPLE_TECNICOS_UM } from './data/mockData';
 import { PRESET_PREVENTIVAS } from './data/presetPreventivas';
+import { getEquipamentosIniciaisCompletos } from './data/equipamentosIniciais';
+import { getTecnicosIniciaisPadrao } from './data/tecnicosIniciais';
 import { Login } from './components/Login';
 import { Navbar } from './components/Navbar';
 import { MechanicView } from './components/MechanicView';
@@ -176,20 +178,43 @@ export default function App() {
     return [];
   });
   const [tecnicos, setTecnicos] = useState<Tecnico[]>(() => {
+    const padrao = getTecnicosIniciaisPadrao();
     const saved = localStorage.getItem('rft_tecnicos');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
           const clean = parsed.filter(t => !isSampleMockTecnico(t));
-          if (clean.length !== parsed.length) {
-            try { localStorage.setItem('rft_tecnicos', JSON.stringify(clean)); } catch (e) {}
+          if (clean.length >= 10) {
+            return clean;
           }
-          return clean;
+          // Se houver menos de 10 técnicos salvos, mescla com os 299 técnicos da base inicial
+          const mapa = new Map<string, Tecnico>();
+          padrao.forEach(t => mapa.set(normalizarMatricula(t.matricula) || t.id, t));
+          clean.forEach(t => mapa.set(normalizarMatricula(t.matricula) || t.id, t));
+          const merged = Array.from(mapa.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+          try { localStorage.setItem('rft_tecnicos', JSON.stringify(merged)); } catch (e) {}
+          return merged;
         }
       } catch (e) {}
     }
-    return [];
+    try { localStorage.setItem('rft_tecnicos', JSON.stringify(padrao)); } catch (e) {}
+    return padrao;
+  });
+
+  const [equipamentos, setEquipamentos] = useState<Equipamento[]>(() => {
+    const padrao = getEquipamentosIniciaisCompletos();
+    const saved = localStorage.getItem('rft_equipamentos');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      } catch (e) {}
+    }
+    try { localStorage.setItem('rft_equipamentos', JSON.stringify(padrao)); } catch (e) {}
+    return padrao;
   });
 
   const [browserOnline, setBrowserOnline] = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -216,15 +241,17 @@ export default function App() {
         localStorage.removeItem('rft_current_user');
         await dbSaveSession(null);
 
-        // Ensure any cached mock technicians are purged from localStorage
+        // Ensure any cached mock technicians are purged from localStorage while keeping default 299 roster
         try {
           const cachedTecs = localStorage.getItem('rft_tecnicos');
           if (cachedTecs) {
             const parsed = JSON.parse(cachedTecs);
             if (Array.isArray(parsed)) {
               const cleaned = parsed.filter(t => !isSampleMockTecnico(t));
-              localStorage.setItem('rft_tecnicos', JSON.stringify(cleaned));
-              setTecnicos(cleaned);
+              if (cleaned.length >= 10) {
+                localStorage.setItem('rft_tecnicos', JSON.stringify(cleaned));
+                setTecnicos(cleaned);
+              }
             }
           }
         } catch (e) {}
@@ -748,11 +775,8 @@ export default function App() {
     if (isOffline) return;
 
     const tq = query(collection(db, 'tecnicos'));
-    const unsubscribe = onSnapshot(tq, (snapshot) => {
-      if (snapshot.empty) {
-        return;
-      }
-
+    let seededTecnicosOnce = false;
+    const unsubscribe = onSnapshot(tq, async (snapshot) => {
       const deletedTecs = getDeletedTecnicoIds();
       const porMatriculaOuId = new Map<string, Tecnico>();
       snapshot.forEach((docSnap) => {
@@ -784,6 +808,35 @@ export default function App() {
         }
       });
 
+      // Se o banco compartilhado tiver menos de 10 técnicos, popula automaticamente com a lista padrão de 299 técnicos
+      if (porMatriculaOuId.size < 10 && !seededTecnicosOnce) {
+        seededTecnicosOnce = true;
+        const padrao = getTecnicosIniciaisPadrao();
+        padrao.forEach((t) => {
+          const k = normalizarMatricula(t.matricula) || t.id;
+          if (!porMatriculaOuId.has(k)) {
+            porMatriculaOuId.set(k, t);
+          }
+        });
+        const merged = Array.from(porMatriculaOuId.values()).sort((a, b) =>
+          a.nome.localeCompare(b.nome, 'pt-BR')
+        );
+        setTecnicos(merged);
+        saveTecnicosLocalCache(merged);
+
+        try {
+          const { writeBatch } = await import('firebase/firestore');
+          const batch = writeBatch(db);
+          merged.forEach((tec) => {
+            batch.set(doc(db, 'tecnicos', tec.id), tec);
+          });
+          await batch.commit();
+        } catch (err) {
+          console.warn('Aviso ao popular lista inicial de técnicos no Firestore:', err);
+        }
+        return;
+      }
+
       const serverTecs = Array.from(porMatriculaOuId.values()).sort((a, b) =>
         a.nome.localeCompare(b.nome, 'pt-BR')
       );
@@ -797,6 +850,105 @@ export default function App() {
       if (unsubscribe) unsubscribe();
     };
   }, [isOffline]);
+
+  // 2.4 Listen to equipamentos collection (shared equipment catalog)
+  useEffect(() => {
+    if (isOffline) return;
+
+    const eqQuery = query(collection(db, 'equipamentos'));
+    let seededEquipamentosOnce = false;
+    const unsubscribe = onSnapshot(eqQuery, async (snapshot) => {
+      const porTag = new Map<string, Equipamento>();
+      snapshot.forEach((docSnap) => {
+        try {
+          const data = docSnap.data() as Equipamento;
+          if (data && data.tag) {
+            porTag.set(data.tag.toUpperCase(), {
+              ...data,
+              id: docSnap.id,
+              ativo: data.ativo !== false
+            });
+          }
+        } catch (e) {
+          console.error('Erro ao mapear equipamento:', e);
+        }
+      });
+
+      if (porTag.size === 0 && !seededEquipamentosOnce) {
+        seededEquipamentosOnce = true;
+        const iniciais = getEquipamentosIniciaisCompletos();
+        setEquipamentos(iniciais);
+        try { localStorage.setItem('rft_equipamentos', JSON.stringify(iniciais)); } catch (e) {}
+
+        try {
+          const { writeBatch } = await import('firebase/firestore');
+          const batch = writeBatch(db);
+          iniciais.forEach((eq) => {
+            batch.set(doc(db, 'equipamentos', eq.id), eq);
+          });
+          await batch.commit();
+        } catch (err) {
+          console.warn('Aviso ao popular equipamentos iniciais no Firestore:', err);
+        }
+        return;
+      }
+
+      if (porTag.size > 0) {
+        const lista = Array.from(porTag.values()).sort((a, b) => a.tag.localeCompare(b.tag, 'pt-BR'));
+        setEquipamentos(lista);
+        try { localStorage.setItem('rft_equipamentos', JSON.stringify(lista)); } catch (e) {}
+      }
+    }, (error) => {
+      console.warn('Erro ao escutar equipamentos Firestore:', error);
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [isOffline]);
+
+  const handleSaveEquipamento = async (eq: Equipamento) => {
+    setEquipamentos((prev) => {
+      const filtered = prev.filter(item => item.tag.toUpperCase() !== eq.tag.toUpperCase() && item.id !== eq.id);
+      const next = [...filtered, eq].sort((a, b) => a.tag.localeCompare(b.tag, 'pt-BR'));
+      try { localStorage.setItem('rft_equipamentos', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+
+    if (!isOffline) {
+      try {
+        await setDoc(doc(db, 'equipamentos', eq.id), eq);
+      } catch (err) {
+        console.error('Erro ao salvar equipamento no Firestore:', err);
+      }
+    }
+  };
+
+  const handleImportEquipamentos = async (novos: Equipamento[]) => {
+    if (!novos || novos.length === 0) return;
+    let listaFinal: Equipamento[] = [];
+    setEquipamentos((prev) => {
+      const mapa = new Map<string, Equipamento>();
+      prev.forEach(item => mapa.set(item.tag.toUpperCase(), item));
+      novos.forEach(item => mapa.set(item.tag.toUpperCase(), item));
+      listaFinal = Array.from(mapa.values()).sort((a, b) => a.tag.localeCompare(b.tag, 'pt-BR'));
+      try { localStorage.setItem('rft_equipamentos', JSON.stringify(listaFinal)); } catch (e) {}
+      return listaFinal;
+    });
+
+    if (!isOffline) {
+      try {
+        const { writeBatch } = await import('firebase/firestore');
+        const batch = writeBatch(db);
+        novos.forEach((eq) => {
+          batch.set(doc(db, 'equipamentos', eq.id), eq);
+        });
+        await batch.commit();
+      } catch (err) {
+        console.error('Erro ao importar lote de equipamentos no Firestore:', err);
+      }
+    }
+  };
 
   const handleAddTecnico = async (newTec: Omit<Tecnico, 'id' | 'createdAt'>) => {
     const matriculaNorm = normalizarMatricula(newTec.matricula);
@@ -1287,6 +1439,9 @@ export default function App() {
                   paradas={paradas}
                   onSaveParada={handleSaveParada}
                   onDeleteParada={handleDeleteParada}
+                  equipamentos={equipamentos}
+                  onSaveEquipamento={handleSaveEquipamento}
+                  onImportEquipamentos={handleImportEquipamentos}
                 />
               ) : (
                 <MechanicView
@@ -1301,6 +1456,7 @@ export default function App() {
                   tecnicos={tecnicos}
                   paradas={paradas}
                   onSaveParada={handleSaveParada}
+                  equipamentos={equipamentos}
                 />
               )}
             </main>

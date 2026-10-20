@@ -101,11 +101,23 @@ export type GrupoTecnico =
   | 'SOLDADOR'
   | 'INSPETOR'
   | 'AUXILIAR'
+  | 'LAVADOR/PINTOR'
   | 'LAVADOR / PINTOR'
   | 'OPERADOR/MOTORISTA'
   | 'SUPERVISÃO'
   | 'ADMINISTRATIVO'
   | 'OUTROS';
+
+export interface Equipamento {
+  id: string;
+  tag: string;
+  modelo: string;
+  tipo: string;
+  frente: 'EH' | 'CR' | 'PF' | 'INFRA';
+  ativo: boolean;
+  createdAt?: string;
+  atualizadoEm?: string;
+}
 
 export interface Tecnico {
   id: string;
@@ -183,10 +195,13 @@ export interface Segmento {
 export interface Parada {
   id: string;
   tag: string;
+  modelo?: string | null;
   frente: string;
   inicioParada: string;            // hora REAL em que o equipamento parou (ISO)
   fimParada: string | null;        // preenchido quando o equipamento volta a operar (ISO)
   numeroOS?: string | null;
+  ordemServico?: string | null;
+  statusInicial?: string | null;
   sintomaInicial?: string | null;
   falha?: FalhaCatalogada | null;
   previsaoLiberacao?: string | null;

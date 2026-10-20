@@ -280,7 +280,7 @@ export function ReportCardAccordion({ report, onDelete, onContinue, showActions 
                     </div>
                     
                     <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-                      <div><strong>OM:</strong> {at.om || '—'}</div>
+                      <div><strong>Ordem de serviço:</strong> {at.om || '—'}</div>
                       <div><strong>Horímetro:</strong> {at.horimetro || '—'}</div>
                     </div>
                     

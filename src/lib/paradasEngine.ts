@@ -29,9 +29,11 @@ export function formatarParadoHaXhYm(totalMinutos: number): string {
  */
 export function criarNovaParada(params: {
   tag: string;
+  modelo?: string | null;
   frente?: string;
   inicioParada: string; // ISO
   numeroOS?: string | null;
+  ordemServico?: string | null;
   sintomaInicial?: string | null;
   falha?: FalhaCatalogada | null;
   previsaoLiberacao?: string | null;
@@ -56,6 +58,7 @@ export function criarNovaParada(params: {
   const responsavelFuncao = getFuncaoResponsavelSugerida(codigo, responsavel, codDef?.quem || '');
   const origemSeg = params.origem || 'ADMIN';
   const sintomaFinal = params.sintomaInicial || (params.falha ? formatarFalhaCard(params.falha) : null);
+  const osFinal = params.ordemServico || params.numeroOS || null;
 
   const segmentoInicial: Segmento = {
     id: `seg-${Date.now()}-1`,
@@ -85,10 +88,13 @@ export function criarNovaParada(params: {
   return {
     id,
     tag: tagNormalizada,
+    modelo: params.modelo || null,
     frente,
     inicioParada: inicioIso,
     fimParada: null,
-    numeroOS: params.numeroOS || null,
+    numeroOS: osFinal,
+    ordemServico: osFinal,
+    statusInicial: codigo,
     sintomaInicial: sintomaFinal,
     falha: params.falha || null,
     previsaoLiberacao: params.previsaoLiberacao || null,

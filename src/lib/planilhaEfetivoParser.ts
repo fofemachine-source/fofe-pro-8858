@@ -1,6 +1,12 @@
 import * as XLSX from 'xlsx';
 import { Tecnico, GrupoTecnico } from '../types';
-import { classificarGrupoFuncao, formatarNomeSobrenome, normalizarMatricula, removerAcentos } from './uEmDataUtils';
+import {
+  classificarGrupoFuncao,
+  formatarNomeSobrenome,
+  normalizarGrupoTecnico,
+  normalizarMatricula,
+  removerAcentos
+} from './uEmDataUtils';
 
 export interface ResumoImportacao {
   totalLido: number;
@@ -14,38 +20,61 @@ export interface ResumoImportacao {
 
 /**
  * Lê e analisa a planilha de efetivo (.xlsx / .csv)
- * Regra A2:
- * - A planilha tem duas linhas de título antes do cabeçalho real (a linha 1 também contém "CHAPA").
- * - O cabeçalho correto é a primeira linha que contém AO MESMO TEMPO "CHAPA", "NOME" e "FUNÇÃO"
- *   (comparar sem acento e sem diferenciar maiúsculas).
- * - CHAPA vem como número e deve ser convertida para texto com zeros à esquerda até 6 dígitos (ex.: 25918 -> "025918").
- * - Colunas: CHAPA -> matrícula; NOME -> nome; FUNÇÃO -> função original; DESCRIÇÃO SEÇÃO -> seção.
- * - Ignorar linhas sem CHAPA ou sem NOME. UPSERT pela matrícula (não duplicar). Todos importados ficam ATIVOS.
+ * Aceita dois formatos:
+ * - Formato A (planilha já tratada): CSV com separador ; e colunas MATRICULA;NOME;FUNCAO;GRUPO;SECAO na linha 1
+ * - Formato B (planilha original EFETIVO_MANUTENÇÃO.xlsx): cabeçalho na primeira linha que contém
+ *   AO MESMO TEMPO "CHAPA" (ou "MATRICULA"), "NOME" e "FUNÇÃO" (sem acento e sem diferenciar maiúsculas).
+ * - CHAPA/MATRICULA: convertida para texto com zeros à esquerda até 6 dígitos (ex.: 25918 -> "025918").
+ * - Ignorar linhas sem matrícula ou sem nome. UPSERT pela matrícula. Todos importados ficam ATIVOS.
  */
 export async function processarPlanilhaEfetivo(
   arquivo: File,
   tecnicosExistentes: Tecnico[]
 ): Promise<ResumoImportacao> {
-  const buffer = await arquivo.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: 'array', raw: true });
+  let linhas: any[][] = [];
 
-  if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
-    throw new Error('A planilha selecionada não possui abas ou está vazia.');
+  const isCsv = arquivo.name.toLowerCase().endsWith('.csv') || arquivo.type.includes('csv');
+  if (isCsv) {
+    const texto = await arquivo.text();
+    const linhasTexto = texto
+      .replace(/^\uFEFF/, '')
+      .split(/\r?\n/)
+      .filter(l => l.trim().length > 0);
+    linhas = linhasTexto.map(linha => {
+      const sep = linha.includes(';') ? ';' : ',';
+      return linha.split(sep).map(c => c.replace(/^"|"$/g, '').trim());
+    });
+  } else {
+    const buffer = await arquivo.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array', raw: true });
+
+    if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+      throw new Error('A planilha selecionada não possui abas ou está vazia.');
+    }
+
+    const primeiraAbaNome = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[primeiraAbaNome];
+    const rawLinhas = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' }) as any[][];
+
+    // Caso um CSV com ponto e vírgula tenha sido aberto via XLSX como coluna única
+    linhas = rawLinhas.map(row => {
+      if (Array.isArray(row) && row.length === 1 && typeof row[0] === 'string' && row[0].includes(';')) {
+        return row[0].split(';').map((c: string) => c.replace(/^"|"$/g, '').trim());
+      }
+      return row;
+    });
   }
-
-  const primeiraAbaNome = workbook.SheetNames[0];
-  const worksheet = workbook.Sheets[primeiraAbaNome];
-  const linhas = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' }) as any[][];
 
   if (!linhas || linhas.length === 0) {
-    throw new Error('Nenhuma linha encontrada na primeira aba da planilha.');
+    throw new Error('Nenhuma linha encontrada na planilha.');
   }
 
-  // 1. Localiza a primeira linha que contém AO MESMO TEMPO "CHAPA", "NOME" e "FUNÇÃO"
+  // 1. Localiza a primeira linha que contém AO MESMO TEMPO ("CHAPA" ou "MATRICULA"), "NOME" e "FUNÇÃO"
   let headerIndex = -1;
   let colChapa = -1;
   let colNome = -1;
   let colFuncao = -1;
+  let colGrupo = -1;
   let colSecao = -1;
 
   for (let i = 0; i < Math.min(linhas.length, 50); i++) {
@@ -55,36 +84,40 @@ export async function processarPlanilhaEfetivo(
     let foundChapa = -1;
     let foundNome = -1;
     let foundFuncao = -1;
+    let foundGrupo = -1;
     let foundSecao = -1;
 
     for (let c = 0; c < row.length; c++) {
       const celula = removerAcentos(String(row[c] || ''));
       if (!celula) continue;
 
-      if (celula === 'CHAPA' || celula === 'MATRICULA' || celula.startsWith('CHAPA')) {
+      if (celula === 'CHAPA' || celula === 'MATRICULA' || celula.startsWith('CHAPA') || celula.startsWith('MATRICULA')) {
         if (foundChapa === -1) foundChapa = c;
       } else if (celula === 'NOME' || celula === 'NOME COMPLETO' || celula.startsWith('NOME')) {
         if (foundNome === -1) foundNome = c;
       } else if (celula === 'FUNCAO' || celula.includes('FUNCAO') || celula === 'CARGO') {
         if (foundFuncao === -1) foundFuncao = c;
+      } else if (celula === 'GRUPO' || celula === 'CATEGORIA') {
+        if (foundGrupo === -1) foundGrupo = c;
       } else if (celula.includes('DESCRICAO SECAO') || celula.includes('SECAO') || celula === 'TURMA' || celula === 'SETOR') {
         if (foundSecao === -1) foundSecao = c;
       }
     }
 
-    // Só aceita a linha se tiver AO MESMO TEMPO CHAPA, NOME e FUNÇÃO
+    // Só aceita a linha se tiver AO MESMO TEMPO (CHAPA ou MATRICULA), NOME e FUNÇÃO
     if (foundChapa !== -1 && foundNome !== -1 && foundFuncao !== -1) {
       headerIndex = i;
       colChapa = foundChapa;
       colNome = foundNome;
       colFuncao = foundFuncao;
+      colGrupo = foundGrupo;
       colSecao = foundSecao;
       break;
     }
   }
 
   if (headerIndex === -1) {
-    throw new Error('Cabeçalho não encontrado. A planilha deve conter simultaneamente as colunas: CHAPA, NOME e FUNÇÃO.');
+    throw new Error('Cabeçalho não encontrado. A planilha deve conter simultaneamente as colunas: CHAPA (ou MATRICULA), NOME e FUNÇÃO.');
   }
 
   const existentesPorMatricula = new Map<string, Tecnico>();
@@ -103,6 +136,7 @@ export async function processarPlanilhaEfetivo(
     'SOLDADOR': 0,
     'INSPETOR': 0,
     'AUXILIAR': 0,
+    'LAVADOR/PINTOR': 0,
     'LAVADOR / PINTOR': 0,
     'OPERADOR/MOTORISTA': 0,
     'SUPERVISÃO': 0,
@@ -122,7 +156,6 @@ export async function processarPlanilhaEfetivo(
     const row = linhas[r];
     if (!Array.isArray(row) || row.length === 0) continue;
 
-    // Matrícula convertida para texto e completada com zeros à esquerda até 6 dígitos
     const rawChapa = row[colChapa];
     const matricula = normalizarMatricula(rawChapa);
 
@@ -134,33 +167,36 @@ export async function processarPlanilhaEfetivo(
       ? String(rawFuncao).trim()
       : 'Mecânico';
 
+    const rawGrupo = colGrupo !== -1 ? row[colGrupo] : '';
+    const grupoTexto = (rawGrupo !== undefined && rawGrupo !== null) ? String(rawGrupo).trim() : '';
+
     const rawSecao = colSecao !== -1 ? row[colSecao] : '';
     const secao = (rawSecao !== undefined && rawSecao !== null) ? String(rawSecao).trim() : '';
 
-    // Ignorar linhas completamente vazias silenciosamente
     if (!nomeBruto && !matricula) {
       continue;
     }
 
-    // Ignorar linhas sem CHAPA ou sem NOME
     if (!matricula || !nomeBruto) {
       ignorados++;
       if (!matricula && nomeBruto) {
-        erros.push(`Linha ${r + 1}: Nome "${nomeBruto}" sem CHAPA preenchida.`);
+        erros.push(`Linha ${r + 1}: Nome "${nomeBruto}" sem CHAPA/MATRICULA preenchida.`);
       } else if (matricula && !nomeBruto) {
         erros.push(`Linha ${r + 1}: CHAPA ${matricula} sem NOME preenchido.`);
       }
       continue;
     }
 
+    const nomeFormatado = formatarNomeSobrenome(nomeBruto);
+    const grupo: GrupoTecnico = grupoTexto
+      ? normalizarGrupoTecnico(grupoTexto, funcaoOriginal)
+      : classificarGrupoFuncao(funcaoOriginal);
+
     // Se a matrícula já apareceu antes na própria planilha, atualiza o registro sem duplicar contagem
     if (tecnicosMapPorMatricula.has(matricula)) {
       const anterior = tecnicosMapPorMatricula.get(matricula)!;
-      const grupoAnterior = anterior.grupo || classificarGrupoFuncao(anterior.funcao);
+      const grupoAnterior = normalizarGrupoTecnico(anterior.grupo || '', anterior.funcao);
       porGrupo[grupoAnterior] = Math.max(0, (porGrupo[grupoAnterior] || 1) - 1);
-
-      const nomeFormatado = formatarNomeSobrenome(nomeBruto);
-      const grupo = classificarGrupoFuncao(funcaoOriginal);
       porGrupo[grupo] = (porGrupo[grupo] || 0) + 1;
 
       tecnicosMapPorMatricula.set(matricula, {
@@ -177,12 +213,8 @@ export async function processarPlanilhaEfetivo(
     }
 
     totalLido++;
-
-    const nomeFormatado = formatarNomeSobrenome(nomeBruto);
-    const grupo = classificarGrupoFuncao(funcaoOriginal);
     porGrupo[grupo] = (porGrupo[grupo] || 0) + 1;
 
-    // UPSERT pela matrícula (todos importados ficam ATIVOS)
     const existente = existentesPorMatricula.get(matricula);
 
     if (existente) {
