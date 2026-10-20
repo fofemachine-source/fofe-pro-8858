@@ -28,6 +28,7 @@ import { collection, query, onSnapshot, doc, deleteDoc, setDoc } from 'firebase/
 import { db, storage } from './lib/firebase';
 import { mapFirestoreDocToReport, syncSingleReport } from './lib/syncEngine';
 import { processarAtendimentosParaParadas } from './lib/paradasEngine';
+import { definirCatalogoCustomizado } from './data/catalogoFalhas';
 import {
   getDeletedReportIds,
   addDeletedReportId,
@@ -93,6 +94,7 @@ function isSameReports(a: Report[], b: Report[]): boolean {
       const atB = rB.atendimentos[j];
       if (atA.id !== atB.id) return false;
       if (atA.equipamento !== atB.equipamento) return false;
+      if (atA.falha?.codigoCompleto !== atB.falha?.codigoCompleto) return false;
       if (atA.photoUrl !== atB.photoUrl) return false;
       if (JSON.stringify(atA.photoUrls) !== JSON.stringify(atB.photoUrls)) return false;
     }
@@ -328,6 +330,40 @@ export default function App() {
       setPreventivas(serverPrevs);
     }, (error) => {
       console.warn('Erro ao escutar preventivas Firestore:', error);
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [isOffline]);
+
+  // 2.25 Listen to configuracoes/catalogo_falhas for dynamic catalog updates from Admin
+  useEffect(() => {
+    if (isOffline) return;
+
+    const docRef = doc(db, 'configuracoes', 'catalogo_falhas');
+    const unsubscribe = onSnapshot(docRef, (snap) => {
+      if (!snap.exists()) {
+        return;
+      }
+      try {
+        const data = snap.data();
+        if (data && data.catalogoJson) {
+          const parsedCatalogo = JSON.parse(data.catalogoJson);
+          if (parsedCatalogo && typeof parsedCatalogo === 'object') {
+            definirCatalogoCustomizado({
+              catalogo: parsedCatalogo,
+              atualizadoEm: data.atualizadoEm || new Date().toISOString(),
+              atualizadoPor: data.atualizadoPor || 'Admin',
+              nomeArquivo: data.nomeArquivo || ''
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('Falha ao aplicar catálogo customizado do Firestore:', e);
+      }
+    }, (err) => {
+      console.warn('Aviso ao escutar configuracoes/catalogo_falhas:', err);
     });
 
     return () => {

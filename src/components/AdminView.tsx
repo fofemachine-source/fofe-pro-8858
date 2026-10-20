@@ -1,15 +1,17 @@
 import React, { useState, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { 
   Search, FileText, Calendar, 
   Clock, Shield, User as UserIcon, Layers, Wrench, AlertTriangle,
   Trash2, Plus, Check, Save, X, UserCheck, Users, Edit3, RotateCcw,
-  FileSpreadsheet, Upload, AlertCircle
+  FileSpreadsheet, Upload, AlertCircle, FolderTree, Download
 } from 'lucide-react';
 import { Report, Preventiva, User, Tecnico, Parada, GrupoTecnico } from '../types';
 import { PRESET_PREVENTIVAS } from '../data/presetPreventivas';
 import { ReportCardAccordion } from './ReportCardAccordion';
 import { OperationalDashboard } from './OperationalDashboard';
 import { ParadasView } from './ParadasView';
+import { CatalogoAdminTab } from './CatalogoAdminTab';
 import { processarPlanilhaEfetivo, ResumoImportacao } from '../lib/planilhaEfetivoParser';
 import { removerAcentos, formatarNomeSobrenome, classificarGrupoFuncao } from '../lib/uEmDataUtils';
 
@@ -65,7 +67,7 @@ export function AdminView({
   onSaveParada,
   onDeleteParada
 }: AdminViewProps) {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'paradas' | 'preventivas' | 'tecnicos' | 'relatorios'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'paradas' | 'preventivas' | 'tecnicos' | 'relatorios' | 'catalogo'>('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
   const [deleteConfirmPreventiva, setDeleteConfirmPreventiva] = useState<Preventiva | null>(null);
   const [showConfirmClearPreventivas, setShowConfirmClearPreventivas] = useState(false);
@@ -283,6 +285,19 @@ export function AdminView({
                 <UserCheck className="w-3.5 h-3.5 shrink-0" />
                 <span>👷 TÉCNICOS ({tecnicos.length})</span>
               </button>
+
+              <button
+                id="btn-tab-catalogo"
+                onClick={() => setActiveTab('catalogo')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl font-medium text-[11px] uppercase tracking-wider transition whitespace-nowrap cursor-pointer ${
+                  activeTab === 'catalogo' 
+                    ? 'bg-[var(--um-verde-principal)] text-[var(--um-branco)] shadow-xs' 
+                    : 'text-[var(--um-cinza-texto)] hover:bg-[var(--um-branco)] hover:text-[var(--um-cinza-escuro)]'
+                }`}
+              >
+                <FolderTree className="w-3.5 h-3.5 shrink-0" />
+                <span>🗂️ CATÁLOGO</span>
+              </button>
             </>
           )}
 
@@ -342,6 +357,13 @@ export function AdminView({
         />
       )}
 
+      {activeTab === 'catalogo' && (
+        <CatalogoAdminTab
+          currentUser={currentUser}
+          isOffline={isOffline}
+        />
+      )}
+
       {activeTab === 'relatorios' && (
         /* RENDER ORIGINAL REPORTE PANEL AS IS */
         <>
@@ -358,6 +380,49 @@ export function AdminView({
 
             {/* Small stats badges */}
             <div className="flex flex-wrap items-center gap-2 text-xs">
+              {filteredReports.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const linhas: Record<string, any>[] = [];
+                    filteredReports.forEach((rep) => {
+                      (rep.atendimentos || []).forEach((at) => {
+                        linhas.push({
+                          'Data Início': rep.dateStart || '',
+                          'Data Fim': rep.dateEnd || '',
+                          'Turno': rep.shift || '',
+                          'Turma': rep.team || '',
+                          'Frente': rep.frente || '',
+                          'Mecânico / Equipe': rep.mecanico || '',
+                          'TAG Equipamento': at.equipamento || '',
+                          'OM': at.om || '',
+                          'Horímetro': at.horimetro || '',
+                          'Hora Início': at.horaInicio || '',
+                          'Hora Fim': at.horaFim || '',
+                          'perfil': at.falha?.perfil || '',
+                          'sistema': at.falha ? `${at.falha.sistema.codigo} - ${at.falha.sistema.nome}` : '',
+                          'componente': at.falha ? `${at.falha.componente.codigo} - ${at.falha.componente.nome}` : '',
+                          'sintoma': at.falha ? `${at.falha.sintoma.codigo} - ${at.falha.sintoma.nome}` : (at.sintoma || ''),
+                          'código completo': at.falha?.codigoCompleto || '',
+                          'Complemento': at.falha?.complemento || '',
+                          'Causa': at.causa || '',
+                          'Ação Executada': at.acaoExecutada || '',
+                          'Atuantes': at.atuantes || ''
+                        });
+                      });
+                    });
+                    const ws = XLSX.utils.json_to_sheet(linhas);
+                    const wb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wb, ws, 'Relatorios_Manutencao');
+                    XLSX.writeFile(wb, `relatorios_manutencao_um_${new Date().toISOString().slice(0, 10)}.xlsx`);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-800 hover:bg-emerald-900 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-xs"
+                  title="Exportar relatórios para Excel (.xlsx) com colunas de Catálogo de Falhas"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Exportar Excel (.xlsx)</span>
+                </button>
+              )}
               {reports.length > 0 && (
                 <button
                   type="button"

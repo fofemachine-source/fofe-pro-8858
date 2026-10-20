@@ -1,5 +1,6 @@
 import { Report } from '../types';
 import { getGreetingForTime } from '../lib/greetings';
+import { formatarFalhaDetalhe } from '../data/catalogoFalhas';
 
 /**
  * Utility to format dates in pt-BR locale
@@ -72,7 +73,7 @@ export function downloadReportAsTXT(report: Report) {
       content += `${at.equipamento}\n\n`;
       content += `OM: ${at.om || 'N/A'}\n\n`;
       content += `Horímetro: ${at.horimetro || 'N/A'}\n\n`;
-      content += `Sintoma:\n${at.sintoma || 'N/A'}\n\n`;
+      content += `Sintoma:\n${formatarFalhaDetalhe(at.falha, at.sintoma) || 'N/A'}\n\n`;
       content += `Causa:\n${at.causa || 'N/A'}\n\n`;
       content += `Ação:\n${at.acaoExecutada || 'N/A'}\n\n`;
       content += `Início:\n${at.horaInicio || 'N/A'}\n\n`;
@@ -146,7 +147,7 @@ export function printReportAsPDF(report: Report) {
           <div>
             <p style="margin: 0 0 1px 0; font-size: 10px; font-weight: bold; color: #374151;">Sintoma:</p>
             <p style="margin: 0; font-size: 10px; color: #4b5563; background-color: #f9fafb; padding: 2px 4px; border-radius: 4px; border-left: 2px solid #10b981;">
-              ${at.sintoma || '—'}
+              ${formatarFalhaDetalhe(at.falha, at.sintoma) || '—'}
             </p>
           </div>
           <div>

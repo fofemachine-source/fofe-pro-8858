@@ -4,9 +4,11 @@ import {
   CheckCircle2, FileText, Calendar, Info, Clock, User as UserIcon, BookOpen, FileSpreadsheet, X,
   ClipboardList, PlusCircle, Play, Pause, RotateCcw, Wrench, Search, Users, Check, AlertCircle, ArrowRight, History
 } from 'lucide-react';
-import { Report, Atendimento, Pendencia, User, Preventiva, Tecnico, Parada } from '../types';
+import { Report, Atendimento, Pendencia, User, Preventiva, Tecnico, Parada, FalhaCatalogada } from '../types';
 import { ReportCardAccordion } from './ReportCardAccordion';
 import { TechnicianScrollSelector } from './TechnicianScrollSelector';
+import { SeletorCatalogo } from './SeletorCatalogo';
+import { formatarFalhaCard, perfilDaTag, precisaEscolherPerfilCR } from '../data/catalogoFalhas';
 import { 
   getSegmentoAtual, 
   calcularDuracaoTotalParadaMinutos, 
@@ -192,6 +194,7 @@ export function MechanicView({
   const [novaParadaCodigo, setNovaParadaCodigo] = useState('HMC 9130');
   const [novaParadaOS, setNovaParadaOS] = useState('');
   const [novaParadaSintoma, setNovaParadaSintoma] = useState('');
+  const [novaParadaFalha, setNovaParadaFalha] = useState<FalhaCatalogada | null>(null);
 
   // Modal 3: Pausar Atendimento
   const [pausandoParada, setPausandoParada] = useState<Parada | null>(null);
@@ -216,6 +219,7 @@ export function MechanicView({
   const [finalizarBuscaOutroAg, setFinalizarBuscaOutroAg] = useState('');
   const [finalizarComplemento, setFinalizarComplemento] = useState('');
   const [finalizarSintoma, setFinalizarSintoma] = useState('');
+  const [finalizarFalha, setFinalizarFalha] = useState<FalhaCatalogada | null>(null);
   const [finalizarCausa, setFinalizarCausa] = useState('');
   const [finalizarAcao, setFinalizarAcao] = useState('');
   const [finalizarErro, setFinalizarErro] = useState('');
@@ -427,6 +431,7 @@ export function MechanicView({
     const atuantesStr = Array.from(new Set(todosAtuantes)).join(', ');
 
     // Preenche/atualiza automaticamente o card de Equipamento Atendido no formulário do relatório
+    const sintomaParada = formatarFalhaCard(paradaAtualizada.falha, paradaAtualizada.sintomaInicial);
     setAtendimentos((prev) => {
       const idxExistente = prev.findIndex(a => normalizarTag(a.equipamento) === normalizarTag(paradaAtualizada.tag));
       if (idxExistente >= 0) {
@@ -436,7 +441,8 @@ export function MechanicView({
                 ...a,
                 equipamento: paradaAtualizada.tag,
                 om: a.om || paradaAtualizada.numeroOS || '',
-                sintoma: a.sintoma || paradaAtualizada.sintomaInicial || '',
+                sintoma: a.sintoma || sintomaParada || '',
+                falha: a.falha || paradaAtualizada.falha || null,
                 horaRealParada: horaRealParadaHhMm,
                 horaInicio: a.horaInicio || horaInicioHhMm,
                 tipoManutencao: iniciandoTipoManutencao,
@@ -451,7 +457,8 @@ export function MechanicView({
         equipamento: paradaAtualizada.tag,
         om: paradaAtualizada.numeroOS || '',
         horimetro: '',
-        sintoma: paradaAtualizada.sintomaInicial || '',
+        sintoma: sintomaParada || '',
+        falha: paradaAtualizada.falha || null,
         causa: '',
         acaoExecutada: '',
         horaRealParada: horaRealParadaHhMm,
@@ -547,6 +554,7 @@ export function MechanicView({
     const agoraIso = new Date().toISOString();
     const agoraHhMm = new Date(agoraIso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
     const atExistente = atendimentos.find(a => normalizarTag(a.equipamento) === normalizarTag(parada.tag));
+    const falhaInicial = atExistente?.falha || parada.falha || null;
 
     setFinalizandoParada(parada);
     setFinalizarHoraToqueIso(agoraIso);
@@ -555,7 +563,8 @@ export function MechanicView({
     setFinalizarCodigoContinuacao('HMC 9118');
     setFinalizarBuscaOutroAg('');
     setFinalizarComplemento('');
-    setFinalizarSintoma(atExistente?.sintoma || parada.sintomaInicial || '');
+    setFinalizarFalha(falhaInicial);
+    setFinalizarSintoma(atExistente?.sintoma || formatarFalhaCard(falhaInicial, parada.sintomaInicial) || '');
     setFinalizarCausa(atExistente?.causa || '');
     setFinalizarAcao(atExistente?.acaoExecutada || '');
     setFinalizarErro('');
@@ -565,7 +574,19 @@ export function MechanicView({
   const handleConfirmarFinalizarAtendimento = () => {
     if (!finalizandoParada) return;
 
-    if (!finalizarSintoma.trim() || !finalizarCausa.trim() || !finalizarAcao.trim()) {
+    const temCatalogoParada = Boolean(
+      perfilDaTag(finalizandoParada.tag) || precisaEscolherPerfilCR(finalizandoParada.tag)
+    );
+    if (temCatalogoParada && !finalizarFalha) {
+      setFinalizarErro('Selecione Sistema › Componente › Sintoma no Catálogo de Falhas antes de finalizar.');
+      return;
+    }
+
+    const sintomaEfetivo = finalizarFalha
+      ? formatarFalhaCard(finalizarFalha, finalizarSintoma)
+      : finalizarSintoma.trim();
+
+    if (!sintomaEfetivo || !finalizarCausa.trim() || !finalizarAcao.trim()) {
       setFinalizarErro('Preencha Sintoma, Causa e Ação Executada para finalizar o atendimento e enviar o relatório.');
       return;
     }
@@ -584,6 +605,8 @@ export function MechanicView({
       liberadoOperacao: finalizarLiberado,
       codigoContinuacaoSeNaoLiberado: finalizarLiberado ? undefined : finalizarCodigoContinuacao,
       complemento: finalizarComplemento.trim() || null,
+      falha: finalizarFalha,
+      sintoma: sintomaEfetivo,
       usuarioNome: nomeTec,
       usuarioMatricula: matTec,
       reportId: repId
@@ -605,7 +628,8 @@ export function MechanicView({
           normalizarTag(a.equipamento) === normalizarTag(finalizandoParada.tag)
             ? {
                 ...a,
-                sintoma: finalizarSintoma.trim(),
+                sintoma: sintomaEfetivo,
+                falha: finalizarFalha,
                 causa: finalizarCausa.trim(),
                 acaoExecutada: finalizarAcao.trim(),
                 horaFim: finalizarHoraFim,
@@ -620,7 +644,8 @@ export function MechanicView({
             equipamento: finalizandoParada.tag,
             om: finalizandoParada.numeroOS || '',
             horimetro: '',
-            sintoma: finalizarSintoma.trim(),
+            sintoma: sintomaEfetivo,
+            falha: finalizarFalha,
             causa: finalizarCausa.trim(),
             acaoExecutada: finalizarAcao.trim(),
             horaRealParada: horaRealDefault,
@@ -673,6 +698,7 @@ export function MechanicView({
       inicioParada: inicioParadaIso,
       numeroOS: novaParadaOS.trim() || null,
       sintomaInicial: novaParadaSintoma.trim() || null,
+      falha: novaParadaFalha,
       usuario: usuarioCriador,
       matricula: tecnicoMatricula || undefined,
       origem: 'TECNICO',
@@ -689,6 +715,7 @@ export function MechanicView({
     setNovaParadaTag('');
     setNovaParadaOS('');
     setNovaParadaSintoma('');
+    setNovaParadaFalha(null);
     setHighlightParadaId(nova.id);
     setTimeout(() => setHighlightParadaId(null), 4000);
   };
@@ -890,6 +917,17 @@ export function MechanicView({
 
   // Helper to submit or save as draft
   const handleSave = (status: 'RASCUNHO' | 'ENVIADO') => {
+    if (status === 'ENVIADO') {
+      for (let i = 0; i < atendimentos.length; i++) {
+        const at = atendimentos[i];
+        if (!at.equipamento.trim()) continue;
+        const temCat = Boolean(perfilDaTag(at.equipamento) || precisaEscolherPerfilCR(at.equipamento));
+        if (temCat && !at.falha) {
+          alert(`Equipamento #${i + 1} (${normalizarTag(at.equipamento)}): Selecione Sistema › Componente › Sintoma no Catálogo de Falhas antes de enviar o relatório.`);
+          return;
+        }
+      }
+    }
     handleSaveWithCustomAtendimentos(status, atendimentos);
   };
 
@@ -1134,9 +1172,14 @@ export function MechanicView({
                               </span>
                             </div>
 
-                            {parada.sintomaInicial && (
-                              <p className="text-[11px] mt-1.5 font-medium opacity-90" style={{ color: respStyle.texto }}>
-                                Sintoma: <strong>{parada.sintomaInicial}</strong>
+                            {formatarFalhaCard(parada.falha, parada.sintomaInicial) && (
+                              <p className="text-[11px] mt-1.5 font-medium opacity-90 flex items-center gap-1.5 flex-wrap" style={{ color: respStyle.texto }}>
+                                {parada.falha?.codigoCompleto && (
+                                  <span className="font-mono text-[10px] px-1.5 py-0.2 rounded bg-black/10 font-black">
+                                    {parada.falha.codigoCompleto}
+                                  </span>
+                                )}
+                                <span>Sintoma: <strong>{formatarFalhaCard(parada.falha, parada.sintomaInicial)}</strong></span>
                               </p>
                             )}
 
@@ -1594,8 +1637,24 @@ export function MechanicView({
                           required
                           placeholder="Ex: EH-4050"
                           value={at.equipamento}
-                          onChange={(e) => handleUpdateAtendimento(at.id, 'equipamento', e.target.value)}
-                          className="block w-full px-3 py-2.5 border border-gray-250 bg-white rounded-xl text-gray-900 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#19502F] transition-all font-mono"
+                          onChange={(e) => {
+                            const norm = normalizarTag(e.target.value);
+                            const pVinc = paradas.find(p => p.situacao === 'ABERTA' && normalizarTag(p.tag) === norm);
+                            setAtendimentos(prev =>
+                              prev.map(item => {
+                                if (item.id !== at.id) return item;
+                                const novaFalha = item.falha || pVinc?.falha || null;
+                                const novoSintoma = item.sintoma || (pVinc ? formatarFalhaCard(pVinc.falha, pVinc.sintomaInicial) : '');
+                                return {
+                                  ...item,
+                                  equipamento: norm,
+                                  falha: novaFalha,
+                                  sintoma: novoSintoma
+                                };
+                              })
+                            );
+                          }}
+                          className="block w-full px-3 py-2.5 border border-gray-250 bg-white rounded-xl text-gray-900 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#19502F] transition-all font-mono uppercase"
                         />
                         
                         {/* Suggest preset buttons */}
@@ -1686,17 +1745,28 @@ export function MechanicView({
                     </div>
 
                     <div className="space-y-3">
-                      {/* Sintoma */}
+                      {/* Sintoma com Catálogo de Falhas em Cascata */}
                       <div>
-                        <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
-                          Sintoma *
-                        </label>
-                        <textarea
-                          rows={2}
-                          placeholder="Ex: Vazamento hidráulico ou quebra de correia..."
-                          value={at.sintoma}
-                          onChange={(e) => handleUpdateAtendimento(at.id, 'sintoma', e.target.value)}
-                          className="block w-full px-3 py-2.5 border border-gray-250 bg-white rounded-xl text-gray-900 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#19502F] transition-all"
+                        <SeletorCatalogo
+                          tag={at.equipamento}
+                          value={at.falha || paradaVinculada?.falha || null}
+                          complemento={at.falha ? (at.falha.complemento || '') : (at.sintoma || paradaVinculada?.sintomaInicial || '')}
+                          obrigatorio={true}
+                          isAdmin={user.role === 'admin'}
+                          labelTitulo="SINTOMA (CATÁLOGO DE FALHAS DA TAG)"
+                          onChange={(falha, resumo, comp) => {
+                            setAtendimentos(prev =>
+                              prev.map(item =>
+                                item.id === at.id
+                                  ? {
+                                      ...item,
+                                      falha,
+                                      sintoma: resumo || comp
+                                    }
+                                  : item
+                              )
+                            );
+                          }}
                         />
                       </div>
 
@@ -2448,18 +2518,18 @@ export function MechanicView({
               {/* Sintoma, Causa e Ação Executada */}
               <div className="space-y-3">
                 <div>
-                  <label className="block text-[11px] font-extrabold text-gray-700 uppercase mb-1">
-                    Sintoma *
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={finalizarSintoma}
-                    onChange={(e) => {
-                      setFinalizarSintoma(e.target.value);
+                  <SeletorCatalogo
+                    tag={finalizandoParada.tag}
+                    value={finalizarFalha}
+                    complemento={finalizarFalha ? (finalizarFalha.complemento || '') : finalizarSintoma}
+                    obrigatorio={true}
+                    isAdmin={user.role === 'admin'}
+                    labelTitulo="SINTOMA (CATÁLOGO DE FALHAS)"
+                    onChange={(falha, resumo, comp) => {
+                      setFinalizarFalha(falha);
+                      setFinalizarSintoma(resumo || comp);
                       setFinalizarErro('');
                     }}
-                    placeholder="Descreva o sintoma da falha..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-[#19502F]"
                   />
                 </div>
 
@@ -2634,9 +2704,9 @@ export function MechanicView({
           MODAL 5: ABRIR NOVA PARADA PELO TÉCNICO (ITEM 5)
           ========================================================================= */}
       {showNovaParadaModal && (
-        <div className="fixed inset-0 bg-black/65 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl border border-gray-200 overflow-hidden">
-            <div className="bg-[#19502F] p-5 text-white flex items-center justify-between">
+        <div className="fixed inset-0 bg-black/65 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl w-full max-w-xl shadow-2xl border border-gray-200 overflow-hidden my-auto max-h-[92vh] flex flex-col">
+            <div className="bg-[#19502F] p-5 text-white flex items-center justify-between shrink-0">
               <div>
                 <h3 className="text-sm font-black uppercase tracking-wider flex items-center gap-2">
                   <Plus className="w-5 h-5" />
@@ -2655,7 +2725,7 @@ export function MechanicView({
               </button>
             </div>
 
-            <form onSubmit={handleConfirmarNovaParadaTecnico} className="p-5 space-y-4">
+            <form onSubmit={handleConfirmarNovaParadaTecnico} className="p-5 space-y-4 overflow-y-auto">
               <div>
                 <label className="block text-xs font-extrabold text-gray-800 uppercase tracking-wider mb-1">
                   TAG do Equipamento *
@@ -2664,10 +2734,11 @@ export function MechanicView({
                   type="text"
                   value={novaParadaTag}
                   onChange={(e) => {
-                    setNovaParadaTag(e.target.value);
-                    setNovaParadaFrente(derivarFrenteDaTag(e.target.value));
+                    const norm = normalizarTag(e.target.value);
+                    setNovaParadaTag(norm);
+                    setNovaParadaFrente(derivarFrenteDaTag(norm));
                   }}
-                  placeholder="Ex: EH-4050, CR-3116, PF-1031"
+                  placeholder="Ex: EH-4050, CR-3114, CR-2520"
                   className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-sm font-black uppercase font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#19502F]"
                   required
                   autoFocus
@@ -2770,15 +2841,17 @@ export function MechanicView({
               </div>
 
               <div>
-                <label className="block text-[11px] font-extrabold text-gray-700 uppercase mb-1">
-                  Sintoma Inicial / Observação (Opcional)
-                </label>
-                <input
-                  type="text"
-                  value={novaParadaSintoma}
-                  onChange={(e) => setNovaParadaSintoma(e.target.value)}
-                  placeholder="Ex: Falha hidráulica, alarme no painel..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs"
+                <SeletorCatalogo
+                  tag={novaParadaTag}
+                  value={novaParadaFalha}
+                  complemento={novaParadaSintoma}
+                  obrigatorio={false}
+                  isAdmin={user.role === 'admin'}
+                  labelTitulo="SINTOMA INICIAL / CATÁLOGO DE FALHAS (OPCIONAL NA ABERTURA)"
+                  onChange={(falha, resumo, comp) => {
+                    setNovaParadaFalha(falha);
+                    setNovaParadaSintoma(resumo || comp);
+                  }}
                 />
               </div>
 

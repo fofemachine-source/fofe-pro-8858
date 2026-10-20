@@ -1,3 +1,7 @@
+import { FalhaCatalogada } from './data/catalogoFalhas';
+
+export type { FalhaCatalogada };
+
 export type ReportStatus = 'RASCUNHO' | 'PENDENTE_SINCRONIZACAO' | 'SINCRONIZANDO' | 'ENVIADO' | 'ERRO_SINCRONIZACAO';
 
 export interface Atendimento {
@@ -6,6 +10,7 @@ export interface Atendimento {
   om: string;
   horimetro: string;
   sintoma: string;
+  falha?: FalhaCatalogada | null;
   causa: string;
   acaoExecutada: string;
   horaInicio: string;
@@ -183,6 +188,7 @@ export interface Parada {
   fimParada: string | null;        // preenchido quando o equipamento volta a operar (ISO)
   numeroOS?: string | null;
   sintomaInicial?: string | null;
+  falha?: FalhaCatalogada | null;
   previsaoLiberacao?: string | null;
   situacao: 'ABERTA' | 'ENCERRADA';
   segmentos: Segmento[];           // linha do tempo, em ordem, sem buracos e sem sobreposição

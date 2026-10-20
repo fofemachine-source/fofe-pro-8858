@@ -1,6 +1,7 @@
-import { Parada, Segmento, AuditoriaParada, ResponsavelClasse } from '../types';
+import { Parada, Segmento, AuditoriaParada, ResponsavelClasse, FalhaCatalogada } from '../types';
 import { buscarCodigoVale, getFuncaoResponsavelSugerida } from '../data/codigosVale';
 import { derivarFrenteDaTag, normalizarTag } from './uEmDataUtils';
+import { formatarFalhaCard } from '../data/catalogoFalhas';
 
 /**
  * Formata minutos em "Xh Ym" ou "Ym" (ex: 0m, 37m, 1h 05m)
@@ -32,6 +33,7 @@ export function criarNovaParada(params: {
   inicioParada: string; // ISO
   numeroOS?: string | null;
   sintomaInicial?: string | null;
+  falha?: FalhaCatalogada | null;
   previsaoLiberacao?: string | null;
   usuario: string;
   matricula?: string;
@@ -53,6 +55,7 @@ export function criarNovaParada(params: {
   const responsavel = codDef?.resp || 'MANUTENCAO';
   const responsavelFuncao = getFuncaoResponsavelSugerida(codigo, responsavel, codDef?.quem || '');
   const origemSeg = params.origem || 'ADMIN';
+  const sintomaFinal = params.sintomaInicial || (params.falha ? formatarFalhaCard(params.falha) : null);
 
   const segmentoInicial: Segmento = {
     id: `seg-${Date.now()}-1`,
@@ -76,7 +79,7 @@ export function criarNovaParada(params: {
     usuario: params.usuario,
     matricula: params.matricula || undefined,
     acao: 'CRIADA',
-    detalhes: `Parada aberta para ${tagNormalizada} com início em ${inicioIso}. Segmento inicial: ${codigo} - ${nome}`
+    detalhes: `Parada aberta para ${tagNormalizada} com início em ${inicioIso}. Segmento inicial: ${codigo} - ${nome}${params.falha ? ` (${params.falha.codigoCompleto})` : ''}`
   };
 
   return {
@@ -86,7 +89,8 @@ export function criarNovaParada(params: {
     inicioParada: inicioIso,
     fimParada: null,
     numeroOS: params.numeroOS || null,
-    sintomaInicial: params.sintomaInicial || null,
+    sintomaInicial: sintomaFinal,
+    falha: params.falha || null,
     previsaoLiberacao: params.previsaoLiberacao || null,
     situacao: 'ABERTA',
     segmentos: [segmentoInicial],
@@ -559,7 +563,12 @@ export function processarAtendimentosParaParadas(
       const relatorios = Array.from(new Set([...(parada.relatorioIds || []), reportId]));
       parada.relatorioIds = relatorios;
       if (at.om && !parada.numeroOS) parada.numeroOS = at.om;
-      if (at.sintoma && !parada.sintomaInicial) parada.sintomaInicial = at.sintoma;
+      if (at.falha) {
+        parada.falha = at.falha;
+        parada.sintomaInicial = formatarFalhaCard(at.falha, at.sintoma);
+      } else if (at.sintoma && !parada.sintomaInicial) {
+        parada.sintomaInicial = at.sintoma;
+      }
       if (at.previsaoLiberacao) parada.previsaoLiberacao = at.previsaoLiberacao;
 
       // Se a parada já foi operada pelos botões Iniciar/Pausar/Retomar/Finalizar, NÃO sobrescreve os períodos!
@@ -648,6 +657,7 @@ export function processarAtendimentosParaParadas(
         inicioParada: inicioParadaIso,
         numeroOS: at.om,
         sintomaInicial: at.sintoma,
+        falha: at.falha || null,
         previsaoLiberacao: at.previsaoLiberacao,
         usuario,
         origem: 'TECNICO',
@@ -1043,12 +1053,20 @@ export function finalizarAtendimentoParada(params: {
   liberadoOperacao: boolean;
   codigoContinuacaoSeNaoLiberado?: string;
   complemento?: string | null;
+  falha?: FalhaCatalogada | null;
+  sintoma?: string | null;
   usuarioNome: string;
   usuarioMatricula?: string;
   reportId?: string;
 }): Parada {
   let fimIso = params.horaFimIso || new Date().toISOString();
   const parada = { ...params.parada };
+  if (params.falha) {
+    parada.falha = params.falha;
+    parada.sintomaInicial = formatarFalhaCard(params.falha, params.sintoma);
+  } else if (params.sintoma) {
+    parada.sintomaInicial = params.sintoma;
+  }
 
   // Fechar segmento atual na hora fim
   const segmentos = [...parada.segmentos];

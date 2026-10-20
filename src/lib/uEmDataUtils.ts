@@ -129,24 +129,20 @@ export function isTecnicoDeCampo(grupo?: string): boolean {
 
 /**
  * Normaliza e formata TAG de equipamento no padrão PREFIXO-NÚMERO (Regra 2.3)
- * Ex: "cr3114" -> "CR-3114", "CR 3114" -> "CR-3114", "eh5004" -> "EH-5004"
+ * Ex: "cr3114" -> "CR-3114", "CR 3114" -> "CR-3114", "eh4050" -> "EH-4050"
  */
 export function normalizarTag(tag: string): string {
   if (!tag) return '';
-  const clean = tag.trim().toUpperCase().replace(/[\s_]+/g, '-');
-  
-  // Se já está no formato PREFIXO-NUMERO
-  if (/^[A-Z]{2,3}-\d{3,5}$/.test(clean)) {
-    return clean;
-  }
+  const upper = tag.toUpperCase().trim();
+  const compact = upper.replace(/[\s\-_]+/g, '');
 
-  // Se veio sem hífen, ex "CR3114" ou "EH5004"
-  const match = clean.match(/^([A-Z]{2,3})\s*-?(\d{3,5})$/);
+  // Se tiver letras seguidas de números, formata automaticamente como PREFIXO-NUMERO
+  const match = compact.match(/^([A-Z]{1,5})(\d+[A-Z0-9]*)$/);
   if (match) {
     return `${match[1]}-${match[2]}`;
   }
 
-  return clean;
+  return upper.replace(/[\s_]+/g, '-');
 }
 
 /**
@@ -154,7 +150,7 @@ export function normalizarTag(tag: string): string {
  */
 export function isTagValida(tag: string): boolean {
   if (!tag) return false;
-  return /^[A-Z]{2,3}-\d{3,5}$/.test(normalizarTag(tag));
+  return /^[A-Z]{2,4}-\d{2,6}$/.test(normalizarTag(tag));
 }
 
 /**

@@ -6,6 +6,7 @@ import {
 import { Report } from '../types';
 import { formatDate, formatDateTime, printReportAsPDF, downloadReportAsTXT } from './FileActions';
 import { getGreetingForTime } from '../lib/greetings';
+import { formatarFalhaDetalhe } from '../data/catalogoFalhas';
 
 export function getResponsibleLabelAndName(report: Report) {
   if (report.tecnicoNome && report.tecnicoNome.trim() !== '') {
@@ -285,9 +286,27 @@ export function ReportCardAccordion({ report, onDelete, onContinue, showActions 
                     
                     <div className="space-y-2 mt-2">
                       <div>
-                        <div className="font-bold text-gray-400 uppercase text-[9px]">Sintoma:</div>
+                        <div className="font-bold text-gray-400 uppercase text-[9px]">Sintoma / Catálogo de Falha:</div>
                         <div className="bg-gray-50 p-2.5 rounded-lg border border-gray-200 text-gray-800 font-sans mt-0.5 whitespace-normal">
-                          {at.sintoma || 'Não informado'}
+                          {at.falha ? (
+                            <div className="space-y-1">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="font-mono font-black text-[11px] px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300">
+                                  {at.falha.codigoCompleto}
+                                </span>
+                                <span className="font-bold text-gray-900">
+                                  {at.falha.sistema.codigo} – {at.falha.sistema.nome} › {at.falha.componente.codigo} – {at.falha.componente.nome} › {at.falha.sintoma.codigo} – {at.falha.sintoma.nome}
+                                </span>
+                              </div>
+                              {at.falha.complemento && (
+                                <div className="text-xs text-gray-600 italic">
+                                  Complemento: {at.falha.complemento}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            formatarFalhaDetalhe(at.falha, at.sintoma) || 'Não informado'
+                          )}
                         </div>
                       </div>
 

@@ -6,6 +6,7 @@ import { mapFirestoreDocToReport } from '../lib/syncEngine';
 import { Report, Atendimento, Pendencia, Preventiva, User, Parada } from '../types';
 import { getSegmentoAtual, calcularDuracaoTotalParadaMinutos, calcularHorasPorResponsavel } from '../lib/paradasEngine';
 import { CORES_RESPONSABILIDADE, NOMES_RESPONSABILIDADE, formatarMinutosEmHorasEMinutos } from '../theme/uEmTheme';
+import { formatarFalhaCard, listarPerfis, getCatalogo } from '../data/catalogoFalhas';
 import { formatDateTime } from './FileActions';
 import { 
   BarChart, RefreshCw, Layers, Shield, Wrench, Clock, Users,
@@ -165,9 +166,75 @@ function OperationalDashboardContent({
     return () => clearInterval(timer);
   }, []);
 
+  // Operational Date & Time Filters for Equipments & Maintenance
+  const [filterStartDate, setFilterStartDate] = useState<string>('');
+  const [filterStartTime, setFilterStartTime] = useState<string>('');
+  const [filterEndDate, setFilterEndDate] = useState<string>('');
+  const [filterEndTime, setFilterEndTime] = useState<string>('');
+  const [filterEquipTag, setFilterEquipTag] = useState<string>('');
+  const [filterSistema, setFilterSistema] = useState<string>('');
+  const [filterSintoma, setFilterSintoma] = useState<string>('');
+  const [activeDatePreset, setActiveDatePreset] = useState<string>('all');
+
+  const opcoesSistemas = useMemo(() => {
+    const mapa = new Map<string, string>();
+    listarPerfis().forEach((perfil) => {
+      getCatalogo(perfil).forEach((s) => {
+        if (!mapa.has(s.codigo)) {
+          mapa.set(s.codigo, `${s.codigo} – ${s.nome}`);
+        }
+      });
+    });
+    return Array.from(mapa.entries())
+      .map(([codigo, label]) => ({ codigo, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, []);
+
+  const opcoesSintomas = useMemo(() => {
+    const nomesSet = new Set<string>();
+    listarPerfis().forEach((perfil) => {
+      getCatalogo(perfil).forEach((s) => {
+        s.componentes.forEach((c) => {
+          c.sintomas.forEach((sin) => {
+            if (sin.nome) nomesSet.add(sin.nome);
+          });
+        });
+      });
+    });
+    return Array.from(nomesSet).sort((a, b) => a.localeCompare(b));
+  }, []);
+
+  const correspondeFiltroCatalogo = (falha: any, sintomaTextoFallback?: string) => {
+    if (filterSistema) {
+      if (!falha?.sistema?.codigo) return false;
+      if (falha.sistema.codigo !== filterSistema && falha.sistema.nome !== filterSistema) {
+        return false;
+      }
+    }
+    if (filterSintoma) {
+      const fSin = filterSintoma.toLowerCase();
+      const matchCat =
+        falha?.sintoma?.nome?.toLowerCase() === fSin ||
+        falha?.sintoma?.codigo?.toLowerCase() === fSin;
+      const matchLegacy = !falha && sintomaTextoFallback && sintomaTextoFallback.toLowerCase().includes(fSin);
+      if (!matchCat && !matchLegacy) return false;
+    }
+    return true;
+  };
+
   const paradasAbertas = useMemo(() => {
-    return (paradas || []).filter(p => p.situacao === 'ABERTA');
-  }, [paradas]);
+    return (paradas || []).filter(p => {
+      if (p.situacao !== 'ABERTA') return false;
+      if (filterEquipTag.trim()) {
+        const q = filterEquipTag.trim().toLowerCase();
+        const matchTag = (p.tag || '').toLowerCase().includes(q);
+        const matchFrente = (p.frente || '').toLowerCase().includes(q);
+        if (!matchTag && !matchFrente) return false;
+      }
+      if (!correspondeFiltroCatalogo(p.falha, p.motivoInicial)) return false;
+      return true;
+    });
+  }, [paradas, filterEquipTag, filterSistema, filterSintoma]);
 
   const totaisResp = useMemo(() => {
     const agg: Record<string, number> = {
@@ -191,14 +258,6 @@ function OperationalDashboardContent({
     return Object.values(totaisResp).reduce((a, b) => a + b, 0);
   }, [totaisResp]);
 
-  // Operational Date & Time Filters for Equipments & Maintenance
-  const [filterStartDate, setFilterStartDate] = useState<string>('');
-  const [filterStartTime, setFilterStartTime] = useState<string>('');
-  const [filterEndDate, setFilterEndDate] = useState<string>('');
-  const [filterEndTime, setFilterEndTime] = useState<string>('');
-  const [filterEquipTag, setFilterEquipTag] = useState<string>('');
-  const [activeDatePreset, setActiveDatePreset] = useState<string>('all');
-
   const applyPreset = (preset: string) => {
     setActiveDatePreset(preset);
     const now = new Date();
@@ -215,6 +274,8 @@ function OperationalDashboardContent({
       setFilterStartTime('');
       setFilterEndTime('');
       setFilterEquipTag('');
+      setFilterSistema('');
+      setFilterSintoma('');
       setTimeFilter('all');
     } else if (preset === 'today') {
       const todayStr = toYMD(now);
@@ -262,7 +323,7 @@ function OperationalDashboardContent({
   };
 
   const isFilterActive = Boolean(
-    filterStartDate || filterEndDate || filterStartTime || filterEndTime || filterEquipTag
+    filterStartDate || filterEndDate || filterStartTime || filterEndTime || filterEquipTag || filterSistema || filterSintoma
   );
 
   // Inline editing states for previsaoLiberacao
@@ -639,8 +700,105 @@ function OperationalDashboardContent({
       }
     }
 
+    // 4. Filtro de Catálogo (SISTEMA e SINTOMA)
+    if (!correspondeFiltroCatalogo(at.falha, at.sintoma)) {
+      return false;
+    }
+
     return true;
   });
+
+  // Paradas filtradas pelo período, tag, sistema e sintoma para "Top 10 sistemas com mais paradas" e "Top 10 sintomas"
+  const { top10Sistemas, top10Sintomas } = useMemo(() => {
+    const mapSistemas = new Map<string, { label: string; qtd: number; minutos: number }>();
+    const mapSintomas = new Map<string, { label: string; qtd: number; minutos: number }>();
+
+    const paradasIdProcessadas = new Set<string>();
+
+    (paradas || []).forEach((p) => {
+      if (!p.falha) return;
+      const dInicio = (p.inicioParada || '').substring(0, 10);
+      const hInicio = p.inicioParada
+        ? new Date(p.inicioParada).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+        : '';
+
+      if (filterStartDate && dInicio && dInicio < filterStartDate) return;
+      if (filterEndDate && dInicio && dInicio > filterEndDate) return;
+      if (filterStartTime.trim() && hInicio && hInicio < filterStartTime.trim()) return;
+      if (filterEndTime.trim() && hInicio && hInicio > filterEndTime.trim()) return;
+      if (filterEquipTag.trim()) {
+        const q = filterEquipTag.trim().toLowerCase();
+        if (!(p.tag || '').toLowerCase().includes(q) && !(p.frente || '').toLowerCase().includes(q)) {
+          return;
+        }
+      }
+      if (!correspondeFiltroCatalogo(p.falha, p.motivoInicial)) return;
+
+      paradasIdProcessadas.add(p.id);
+      const mins = Math.max(0, calcularDuracaoTotalParadaMinutos(p, liveNow));
+
+      if (p.falha.sistema?.codigo) {
+        const sisKey = p.falha.sistema.codigo;
+        const sisLabel = `${p.falha.sistema.codigo} – ${p.falha.sistema.nome}`;
+        const curSis = mapSistemas.get(sisKey) || { label: sisLabel, qtd: 0, minutos: 0 };
+        curSis.qtd += 1;
+        curSis.minutos += mins;
+        mapSistemas.set(sisKey, curSis);
+      }
+
+      if (p.falha.sintoma?.nome) {
+        const sinKey = p.falha.sintoma.nome.toUpperCase();
+        const sinLabel = `${p.falha.sintoma.nome} (${p.falha.sintoma.codigo})`;
+        const curSin = mapSintomas.get(sinKey) || { label: sinLabel, qtd: 0, minutos: 0 };
+        curSin.qtd += 1;
+        curSin.minutos += mins;
+        mapSintomas.set(sinKey, curSin);
+      }
+    });
+
+    // Inclui atendimentos com falha catalogada que não estão vinculados a parada já contabilizada
+    filteredAtendimentos.forEach((at: any) => {
+      if (!at.falha) return;
+      if (at.paradaId && paradasIdProcessadas.has(at.paradaId)) return;
+
+      let mins = 0;
+      if (at.horaInicio && at.horaInicio !== 'NÃO INFORMADO' && at.horaFim && at.horaFim !== 'NÃO INFORMADO') {
+        const [h1, m1] = String(at.horaInicio).split(':').map(Number);
+        const [h2, m2] = String(at.horaFim).split(':').map(Number);
+        if (!isNaN(h1) && !isNaN(m1) && !isNaN(h2) && !isNaN(m2)) {
+          let diff = (h2 * 60 + m2) - (h1 * 60 + m1);
+          if (diff < 0) diff += 24 * 60;
+          mins = Math.max(0, diff);
+        }
+      }
+
+      if (at.falha.sistema?.codigo) {
+        const sisKey = at.falha.sistema.codigo;
+        const sisLabel = `${at.falha.sistema.codigo} – ${at.falha.sistema.nome}`;
+        const curSis = mapSistemas.get(sisKey) || { label: sisLabel, qtd: 0, minutos: 0 };
+        curSis.qtd += 1;
+        curSis.minutos += mins;
+        mapSistemas.set(sisKey, curSis);
+      }
+
+      if (at.falha.sintoma?.nome) {
+        const sinKey = at.falha.sintoma.nome.toUpperCase();
+        const sinLabel = `${at.falha.sintoma.nome} (${at.falha.sintoma.codigo})`;
+        const curSin = mapSintomas.get(sinKey) || { label: sinLabel, qtd: 0, minutos: 0 };
+        curSin.qtd += 1;
+        curSin.minutos += mins;
+        mapSintomas.set(sinKey, curSin);
+      }
+    });
+
+    const sortFn = (a: { qtd: number; minutos: number }, b: { qtd: number; minutos: number }) =>
+      b.qtd !== a.qtd ? b.qtd - a.qtd : b.minutos - a.minutos;
+
+    return {
+      top10Sistemas: Array.from(mapSistemas.values()).sort(sortFn).slice(0, 10),
+      top10Sintomas: Array.from(mapSintomas.values()).sort(sortFn).slice(0, 10)
+    };
+  }, [paradas, filteredAtendimentos, filterStartDate, filterEndDate, filterStartTime, filterEndTime, filterEquipTag, filterSistema, filterSintoma, liveNow]);
 
   const equipCount = filteredAtendimentos.length;
 
@@ -1114,6 +1272,53 @@ function OperationalDashboardContent({
               </div>
             </div>
           </div>
+
+          {/* FILTROS DE CATÁLOGO DE FALHAS: SISTEMA E SINTOMA */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 mt-3 border-t border-[var(--um-cinza-claro)]">
+            <div>
+              <label className="block text-[12px] font-light uppercase text-[var(--um-cinza-texto)] mb-1 flex items-center gap-1">
+                <Filter className="w-3.5 h-3.5 text-[var(--um-verde-principal)]" />
+                <span>Filtrar por SISTEMA</span>
+              </label>
+              <select
+                value={filterSistema}
+                onChange={(e) => {
+                  setFilterSistema(e.target.value);
+                  setActiveDatePreset('custom');
+                }}
+                className="w-full bg-[var(--um-branco)] border border-[var(--um-cinza-claro)] focus:border-[var(--um-verde-principal)] rounded-xl px-3 py-2 text-[12px] text-[var(--um-cinza-escuro)] focus:outline-none focus:ring-1 focus:ring-[var(--um-verde-principal)] transition cursor-pointer"
+              >
+                <option value="">Todos os Sistemas (ex.: Hidráulico, Elétrico, Motor Diesel)</option>
+                {opcoesSistemas.map((sis) => (
+                  <option key={sis.codigo} value={sis.codigo}>
+                    {sis.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[12px] font-light uppercase text-[var(--um-cinza-texto)] mb-1 flex items-center gap-1">
+                <Filter className="w-3.5 h-3.5 text-[var(--um-verde-principal)]" />
+                <span>Filtrar por SINTOMA</span>
+              </label>
+              <select
+                value={filterSintoma}
+                onChange={(e) => {
+                  setFilterSintoma(e.target.value);
+                  setActiveDatePreset('custom');
+                }}
+                className="w-full bg-[var(--um-branco)] border border-[var(--um-cinza-claro)] focus:border-[var(--um-verde-principal)] rounded-xl px-3 py-2 text-[12px] text-[var(--um-cinza-escuro)] focus:outline-none focus:ring-1 focus:ring-[var(--um-verde-principal)] transition cursor-pointer"
+              >
+                <option value="">Todos os Sintomas (ex.: Vazamento, SOS Crítico, Quebra)</option>
+                {opcoesSintomas.map((sin) => (
+                  <option key={sin} value={sin}>
+                    {sin}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1200,6 +1405,12 @@ function OperationalDashboardContent({
                     <div className="text-xs text-[var(--um-cinza-escuro)] font-medium mb-1">
                       {segAtual.codigo} - {segAtual.nome}
                     </div>
+
+                    {parada.falha && (
+                      <div className="text-[11px] font-medium text-[#19502F] bg-[#E8F5E9] border border-[#19502F]/25 px-2 py-1 rounded-lg mb-1.5">
+                        🔧 {formatarFalhaCard(parada.falha)}
+                      </div>
+                    )}
 
                     <div className="text-[11px] text-[var(--um-cinza-texto)] flex items-center gap-1">
                       <Clock className="w-3 h-3 text-[var(--um-cinza-texto)]" />
@@ -1562,6 +1773,119 @@ function OperationalDashboardContent({
         </div>
       </div>
 
+      {/* BLOCO NOVO: TOP 10 SISTEMAS COM MAIS PARADAS E TOP 10 SINTOMAS */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        {/* TOP 10 SISTEMAS COM MAIS PARADAS */}
+        <div className="bg-[var(--um-branco)] border border-[var(--um-cinza-claro)] p-5 rounded-2xl shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="flex justify-between items-center pb-3 border-b border-[var(--um-cinza-claro)] mb-4">
+              <h3 className="text-[14px] uppercase font-light text-[var(--um-verde-principal)] tracking-wider flex items-center gap-2">
+                <span className="w-1.5 h-3 bg-[var(--um-verde-principal)] rounded-xs"></span>
+                <span>Top 10 sistemas com mais paradas</span>
+              </h3>
+              <span className="text-[11px] bg-[var(--um-fundo)] text-[var(--um-verde-principal)] font-medium px-2.5 py-0.5 rounded-lg border border-[var(--um-cinza-claro)]">
+                Período Filtrado
+              </span>
+            </div>
+
+            {top10Sistemas.length === 0 ? (
+              <div className="py-8 text-center text-[var(--um-cinza-texto)] text-[12px] font-normal uppercase">
+                Nenhuma falha catalogada por sistema no período selecionado.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {top10Sistemas.map((item, idx) => {
+                  const maxQtd = Math.max(...top10Sistemas.map(x => x.qtd), 1);
+                  const pct = (item.qtd / maxQtd) * 100;
+                  return (
+                    <div key={item.label} className="space-y-1">
+                      <div className="flex items-center justify-between gap-2 text-[12px]">
+                        <span className="font-medium text-[var(--um-cinza-escuro)] truncate">
+                          <span className="text-[var(--um-cinza-texto)] font-mono mr-1.5">#{idx + 1}</span>
+                          {item.label}
+                        </span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="px-2 py-0.5 rounded-md bg-[var(--um-fundo)] border border-[var(--um-cinza-claro)] text-[11px] font-medium text-[var(--um-verde-principal)]">
+                            {item.qtd} {item.qtd === 1 ? 'parada' : 'paradas'}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md bg-[var(--um-alerta-claro)] border border-[var(--um-alerta)] text-[11px] font-medium text-[var(--um-alerta-escuro)]">
+                            {formatarMinutosEmHorasEMinutos(item.minutos)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="relative h-2 bg-[var(--um-fundo)] rounded-full overflow-hidden border border-[var(--um-cinza-claro)]">
+                        <div
+                          className="absolute top-0 left-0 h-full bg-[var(--um-verde-principal)] rounded-full transition-all duration-500"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <div className="text-[11px] text-[var(--um-cinza-texto)] font-normal uppercase tracking-wider text-right border-t border-[var(--um-cinza-claro)] pt-3 mt-4">
+            Quantidade de paradas e horas paradas por sistema
+          </div>
+        </div>
+
+        {/* TOP 10 SINTOMAS */}
+        <div className="bg-[var(--um-branco)] border border-[var(--um-cinza-claro)] p-5 rounded-2xl shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="flex justify-between items-center pb-3 border-b border-[var(--um-cinza-claro)] mb-4">
+              <h3 className="text-[14px] uppercase font-light text-[var(--um-verde-principal)] tracking-wider flex items-center gap-2">
+                <span className="w-1.5 h-3 bg-[var(--um-alerta)] rounded-xs"></span>
+                <span>Top 10 sintomas</span>
+              </h3>
+              <span className="text-[11px] bg-[var(--um-fundo)] text-[var(--um-verde-principal)] font-medium px-2.5 py-0.5 rounded-lg border border-[var(--um-cinza-claro)]">
+                Período Filtrado
+              </span>
+            </div>
+
+            {top10Sintomas.length === 0 ? (
+              <div className="py-8 text-center text-[var(--um-cinza-texto)] text-[12px] font-normal uppercase">
+                Nenhum sintoma catalogado no período selecionado.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {top10Sintomas.map((item, idx) => {
+                  const maxQtd = Math.max(...top10Sintomas.map(x => x.qtd), 1);
+                  const pct = (item.qtd / maxQtd) * 100;
+                  return (
+                    <div key={item.label} className="space-y-1">
+                      <div className="flex items-center justify-between gap-2 text-[12px]">
+                        <span className="font-medium text-[var(--um-cinza-escuro)] truncate">
+                          <span className="text-[var(--um-cinza-texto)] font-mono mr-1.5">#{idx + 1}</span>
+                          {item.label}
+                        </span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="px-2 py-0.5 rounded-md bg-[var(--um-fundo)] border border-[var(--um-cinza-claro)] text-[11px] font-medium text-[var(--um-verde-principal)]">
+                            {item.qtd} {item.qtd === 1 ? 'parada' : 'paradas'}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md bg-[var(--um-alerta-claro)] border border-[var(--um-alerta)] text-[11px] font-medium text-[var(--um-alerta-escuro)]">
+                            {formatarMinutosEmHorasEMinutos(item.minutos)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="relative h-2 bg-[var(--um-fundo)] rounded-full overflow-hidden border border-[var(--um-cinza-claro)]">
+                        <div
+                          className="absolute top-0 left-0 h-full bg-[var(--um-alerta)] rounded-full transition-all duration-500"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <div className="text-[11px] text-[var(--um-cinza-texto)] font-normal uppercase tracking-wider text-right border-t border-[var(--um-cinza-claro)] pt-3 mt-4">
+            Quantidade de paradas e horas paradas por sintoma
+          </div>
+        </div>
+      </div>
+
       {/* RECENT MAINTENANCE STREAM AND OPEN OUTSTANDINGS TABLE */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
         {/* TABLE 1: ÚLTIMAS MANUTENÇÕES */}
@@ -1606,6 +1930,11 @@ function OperationalDashboardContent({
                       <tr key={`${at.id || 'at'}-${idx}`} className="hover:bg-[var(--um-fundo)] transition-colors">
                         <td className="py-3 font-medium text-[var(--um-cinza-escuro)]">
                           <div className="text-[13px]">{safeString(at.equipamento)}</div>
+                          {at.falha && (
+                            <div className="text-[11px] font-medium text-[#19502F] mt-0.5">
+                              🔧 {formatarFalhaCard(at.falha)}
+                            </div>
+                          )}
                           {isEditingAt ? (
                             <div className="flex items-center gap-1.5 mt-1.5">
                               <input 

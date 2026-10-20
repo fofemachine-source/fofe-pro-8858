@@ -4,8 +4,10 @@ import {
   ChevronRight, Calendar, User, Wrench, Shield, CheckCircle2, History,
   Edit2, Trash2, Split, Eye, AlertCircle, RefreshCw, Layers
 } from 'lucide-react';
-import { Parada, Segmento, ResponsavelClasse, User as UserType, Report } from '../types';
+import { Parada, Segmento, ResponsavelClasse, User as UserType, Report, FalhaCatalogada } from '../types';
 import { CODIGOS_VALE_FLAT, buscarCodigoVale, getFuncaoResponsavelSugerida } from '../data/codigosVale';
+import { formatarFalhaCard, formatarFalhaDetalhe } from '../data/catalogoFalhas';
+import { SeletorCatalogo } from './SeletorCatalogo';
 import { UEM_THEME, getResponsabilidadeStyle } from '../theme/uEmTheme';
 import { 
   criarNovaParada, 
@@ -144,6 +146,11 @@ export function ParadasView({
           'Fim da Parada': p.fimParada ? formatarDataHoraPtBr(p.fimParada) : 'EM ANDAMENTO',
           'Tempo Total Parado (h)': formatarDuracaoHorasMinutos(durTotalMin),
           'Nº OM/OS': p.numeroOS || '—',
+          'Perfil': p.falha?.perfil || '',
+          'Sistema': p.falha ? `${p.falha.sistema.codigo} - ${p.falha.sistema.nome}` : '',
+          'Componente': p.falha ? `${p.falha.componente.codigo} - ${p.falha.componente.nome}` : '',
+          'Sintoma': p.falha ? `${p.falha.sintoma.codigo} - ${p.falha.sintoma.nome}` : (p.sintomaInicial || ''),
+          'Código Completo': p.falha?.codigoCompleto || '',
           'Seq': sIdx + 1,
           'Código Vale': seg.codigo,
           'Descrição Status': seg.nome,
@@ -372,6 +379,16 @@ export function ParadasView({
                       {parada.numeroOS && (
                         <p className="text-[11px] font-mono text-[var(--um-cinza-texto)] mt-0.5">
                           OM/OS: {parada.numeroOS}
+                        </p>
+                      )}
+                      {formatarFalhaCard(parada.falha, parada.sintomaInicial) && (
+                        <p className="text-[12px] font-bold text-[var(--um-cinza-escuro)] mt-1 flex items-center gap-1.5 flex-wrap">
+                          {parada.falha?.codigoCompleto && (
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--um-verde-principal)]/10 text-[var(--um-verde-principal)] border border-[var(--um-verde-principal)]/20">
+                              {parada.falha.codigoCompleto}
+                            </span>
+                          )}
+                          <span>{formatarFalhaCard(parada.falha, parada.sintomaInicial)}</span>
                         </p>
                       )}
                     </div>
@@ -656,14 +673,16 @@ function ModalNovaParada({
   });
   const [numeroOS, setNumeroOS] = useState('');
   const [sintoma, setSintoma] = useState('');
+  const [falhaCatalogo, setFalhaCatalogo] = useState<FalhaCatalogada | null>(null);
   const [previsao, setPrevisao] = useState('');
   const [codigoInicial, setCodigoInicial] = useState('HMC 9130');
   const [complemento, setComplemento] = useState('');
 
   const handleTagChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
-    setTag(raw);
-    const autoFrente = derivarFrenteDaTag(raw);
+    const norm = normalizarTag(raw);
+    setTag(norm);
+    const autoFrente = derivarFrenteDaTag(norm);
     setFrente(autoFrente);
   };
 
@@ -678,6 +697,7 @@ function ModalNovaParada({
       inicioParada: new Date(horaReal).toISOString(),
       numeroOS: numeroOS.trim() || null,
       sintomaInicial: sintoma.trim() || null,
+      falha: falhaCatalogo,
       previsaoLiberacao: previsao.trim() || null,
       usuario: currentUser.name || currentUser.username,
       codigoInicial,
@@ -688,8 +708,8 @@ function ModalNovaParada({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-[var(--um-branco)] border border-[var(--um-cinza-claro)] rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-[var(--um-branco)] border border-[var(--um-cinza-claro)] rounded-2xl w-full max-w-2xl p-6 shadow-2xl space-y-4 my-auto max-h-[92vh] overflow-y-auto">
         <div className="flex items-center justify-between pb-3 border-b border-[var(--um-cinza-claro)]">
           <h3 className="text-[16px] font-light uppercase text-[var(--um-verde-principal)] flex items-center gap-2">
             <Plus className="w-5 h-5" /> Abrir Parada de Equipamento
@@ -707,7 +727,7 @@ function ModalNovaParada({
                 type="text"
                 value={tag}
                 onChange={handleTagChange}
-                placeholder="Ex: CR-3114, EH-5004"
+                placeholder="Ex: EH-4050, CR-3114, CR-2520"
                 className="w-full px-3 py-2 bg-[var(--um-fundo)] border border-[var(--um-cinza-claro)] rounded-lg text-[13px] font-bold text-[var(--um-cinza-escuro)] uppercase focus:outline-none focus:border-[var(--um-verde-principal)]"
                 required
                 autoFocus
@@ -791,15 +811,18 @@ function ModalNovaParada({
           </div>
 
           <div>
-            <label className="block text-[11px] font-medium uppercase text-[var(--um-cinza-texto)] mb-1">
-              Sintoma Inicial / Complemento
-            </label>
-            <input
-              type="text"
-              value={sintoma}
-              onChange={(e) => setSintoma(e.target.value)}
-              placeholder="Ex: Vazamento no cilindro da caçamba, aguardando lavador"
-              className="w-full px-3 py-2 bg-[var(--um-fundo)] border border-[var(--um-cinza-claro)] rounded-lg text-[12px] text-[var(--um-cinza-escuro)] focus:outline-none focus:border-[var(--um-verde-principal)]"
+            <SeletorCatalogo
+              tag={tag}
+              value={falhaCatalogo}
+              complemento={complemento}
+              isAdmin={currentUser.role === 'admin'}
+              obrigatorio={false}
+              labelTitulo="SINTOMA INICIAL / CATÁLOGO DE FALHAS (OPCIONAL NA ABERTURA)"
+              onChange={(falha, resumo, comp) => {
+                setFalhaCatalogo(falha);
+                setSintoma(resumo);
+                setComplemento(comp);
+              }}
             />
           </div>
 
@@ -1238,6 +1261,11 @@ function ModalDetalheParada({
             <p className="text-[11px] text-[var(--um-cinza-texto)] mt-0.5">
               Início real: {formatarDataHoraPtBr(parada.inicioParada)} · Duração total: {formatarDuracaoHorasMinutos(durTotal)}
             </p>
+            {(parada.falha || parada.sintomaInicial) && (
+              <p className="text-[12px] font-bold text-[var(--um-verde-principal)] mt-1">
+                Falha / Sintoma: {formatarFalhaDetalhe(parada.falha, parada.sintomaInicial)}
+              </p>
+            )}
           </div>
           <button onClick={onClose} className="text-[var(--um-cinza-texto)] hover:text-black">✕</button>
         </div>
